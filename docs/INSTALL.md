@@ -28,6 +28,13 @@ From your project root:
 npx adaptive-mastery init
 ```
 
+Before the package is published to npm — or if you want an unreleased commit — the same entry point
+runs directly from GitHub:
+
+```bash
+npx github:Buezeth/adaptive-mastery-system init
+```
+
 The installer auto-detects which harness you use. To be explicit:
 
 ```bash

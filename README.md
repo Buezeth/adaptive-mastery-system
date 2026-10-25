@@ -41,6 +41,12 @@ npx adaptive-mastery init --harness claude
 npx adaptive-mastery init --harness all
 ```
 
+Straight from this repository, no npm registry needed:
+
+```bash
+npx github:Buezeth/adaptive-mastery-system init
+```
+
 From a clone, without npm:
 
 ```bash
