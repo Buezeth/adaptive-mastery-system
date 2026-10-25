@@ -1,0 +1,50 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Unit tests
+        run: npm test
+
+  smoke:
+    name: install into a scratch project
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Init, doctor, idempotent re-init, uninstall
+        run: |
+          node -e "require('fs').mkdirSync('.smoke',{recursive:true})"
+          node install/cli.mjs init --target .smoke --harness all
+          node install/cli.mjs doctor --target .smoke
+          node install/cli.mjs init --target .smoke --harness all
+          node install/cli.mjs uninstall --target .smoke
+          node -e "const fs=require('fs');if(fs.existsSync('.smoke/.adaptive-mastery')){console.error('vendor dir survived uninstall');process.exit(1)}"
+      - name: Preflight the shipped template
+        run: node tools/preflight-review.mjs templates/feature-guide-template.md

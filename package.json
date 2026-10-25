@@ -1,0 +1,50 @@
+{
+  "name": "adaptive-mastery",
+  "version": "1.0.0",
+  "description": "A repository-aware, independently reviewed learning system that turns any codebase into a sequence of teachable guides.",
+  "keywords": [
+    "documentation",
+    "codebase",
+    "learning",
+    "ai-agents",
+    "skills",
+    "agents-md",
+    "onboarding"
+  ],
+  "license": "MIT",
+  "author": "Buezeth",
+  "homepage": "https://github.com/Buezeth/adaptive-mastery-system#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Buezeth/adaptive-mastery-system.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Buezeth/adaptive-mastery-system/issues"
+  },
+  "type": "module",
+  "bin": {
+    "adaptive-mastery": "./install/cli.mjs"
+  },
+  "files": [
+    "install/",
+    "agents/",
+    "workflows/",
+    "templates/",
+    "config/",
+    "references/",
+    "tools/",
+    "docs/",
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test tests/install.test.mjs tests/preflight.test.mjs",
+    "preflight": "node tools/preflight-review.mjs",
+    "install:demo": "node install/cli.mjs --help"
+  }
+}

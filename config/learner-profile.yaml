@@ -1,0 +1,23 @@
+# Learner profile initialized only from preferences explicitly expressed in the conversation.
+# Update this from actual feedback; do not infer personal traits from one response.
+learner:
+  goal: "Build durable understanding and be able to reason about and explain a codebase independently."
+  starting_assumption: "Do not assume familiarity with technical terms, tools, frameworks, or architecture choices simply because the learner uses AI to build software."
+  explicit_preferences:
+    - "Start from the real problem and a concrete example before introducing implementation terminology."
+    - "Avoid stacking unfamiliar technical concepts; make each important idea understandable before building on it."
+    - "Keep learning engaging and useful rather than making it feel like a tedious technical document."
+    - "Use examples grounded in the user's actual repository."
+    - "Preserve technical depth, but reveal it progressively."
+    - "Do not impose arbitrary response-length limits; adapt depth to the topic and learner."
+    - "Avoid filler sections that do not improve understanding, such as generic instructions about where to edit code when the logic itself is not yet clear."
+  default_teaching_style:
+    tone: "direct, respectful, conversational, accurate"
+    prioritize: ["purpose", "mental model", "cause_and_effect", "concrete_example", "source_grounded_trace", "connection_to_whole"]
+    avoid: ["unexplained_acronym_stacks", "dense_opening_architecture_map", "forced_metaphors", "repetitive_confirmation_questions", "rigid_templates", "arbitrary_length_caps"]
+  known_concepts: []
+  concepts_needing_attention: []
+  demonstrated_strengths: []
+  preferred_examples: []
+  feedback_history: []
+  update_policy: "Update only from explicit feedback or observable evidence within lessons. Let the learner correct this profile at any time."

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "repository": {
+    "name": "",
+    "revision": null,
+    "last_inspected_at": null
+  },
+  "coverage": {
+    "inventory_status": "not_started",
+    "identified_features": null,
+    "mapped_features": null,
+    "approved_guides": null,
+    "uninspected_areas": [],
+    "excluded_features_with_reasons": []
+  },
+  "curriculum": {
+    "path": "docs/learning/CURRICULUM.md",
+    "current_unit_id": null,
+    "last_completed_unit_id": null,
+    "next_action": "initialize repository inventory"
+  },
+  "learner_model": {
+    "stated_background": [],
+    "concepts": {},
+    "confusions": [],
+    "demonstrated_strengths": [],
+    "preferred_explanation_approaches": [],
+    "feedback_to_respect": []
+  },
+  "session_checkpoint": {
+    "last_unit_id": null,
+    "last_guide_version": null,
+    "last_review_status": null,
+    "lesson_position": null,
+    "what_was_explained": [],
+    "what_the_learner_demonstrated": [],
+    "what_remains_unclear": [],
+    "resume_instructions": ""
+  },
+  "review_loop": {
+    "latest_reports": {},
+    "blocked_guides": [],
+    "timings": {
+      "discovery": { "started_at": null, "ended_at": null, "duration_seconds": null },
+      "curriculum": { "started_at": null, "ended_at": null, "duration_seconds": null },
+      "authoring": { "started_at": null, "ended_at": null, "duration_seconds": null },
+      "review": { "started_at": null, "ended_at": null, "duration_seconds": null }
+    },
+    "iterations": []
+  },
+  "change_log": []
+}

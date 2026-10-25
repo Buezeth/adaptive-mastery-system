@@ -1,0 +1,20 @@
+---
+description: Adaptive Mastery System — build a reviewed, prerequisite-ordered learning curriculum for this codebase instead of one architecture dump
+globs:
+alwaysApply: false
+---
+
+# Adaptive Mastery System (v{{VERSION}})
+
+Vendored at `{{DIR}}/`. Use it when the user asks to learn, understand, explain, document, onboard
+onto, or walk through this codebase, a feature, or an implementation scope.
+
+1. Read `{{DIR}}/SKILL.md`, then the role file in `{{DIR}}/agents/` for the pass you are running.
+2. Inventory this repository's real features and entry points before asserting anything.
+3. Order learning units by conceptual prerequisites, not folder layout.
+4. Draft each guide from verified source evidence and real behavior.
+5. Run `node {{DIR}}/tools/preflight-review.mjs <guide>` before review.
+6. Review in a separate pass as a beginner over the lesson layer; check the reference layer
+   mechanically. Do not re-audit the repository.
+7. Revise by delta until the gate passes. Every round must reduce the open blocking count.
+8. Persist curriculum, review state and the resume checkpoint under `docs/learning/`.

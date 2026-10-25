@@ -1,0 +1,106 @@
+version: 1
+system_name: adaptive-mastery-system
+
+# Adapt these paths to the target repository's conventions. Do not overwrite existing files.
+paths:
+  learning_root: docs/learning
+  curriculum: docs/learning/CURRICULUM.md
+  feature_register: docs/learning/feature-register.yaml
+  progress: docs/learning/progress.json
+  feature_guides: docs/learning/features
+  review_reports: docs/learning/reviews
+  source_maps: docs/learning/source-maps
+
+agents:
+  use_separate_contexts_when_available: true
+  roles:
+    - repository_analyst
+    - curriculum_planner
+    - lesson_author
+    - independent_reviewer
+
+review:
+  mode: learner_simulation_with_targeted_source_checks
+  # Repository Analyst owns broad implementation discovery. The reviewer must not repeat it.
+  reviewer_rebuilds_repository_inventory: false
+  reviewer_performs_repository_wide_scan: false
+  reviewer_follows_learner_facing_references: true
+  reviewer_checks_only_relevant_reference_sections: true
+  extra_source_inspection_requires_specific_question: true
+  revised_guide_review_scope: changed_sections_and_affected_references_unless_substantial_rewrite
+
+  # --- Cost control -------------------------------------------------------
+  # Review is the phase that repeats once per unit and once per revision round,
+  # so its cost is what dominates a long run. These settings bound the parts of
+  # review that are mechanical or already known, without lowering the gate.
+
+  # Mechanical checks are never the reviewer's job. Run stage 0 first; a guide
+  # that fails preflight is not worth an expensive pedagogical pass.
+  mechanical_preflight: true
+  preflight_script: tools/preflight-review.ps1
+
+  # The guide is reviewed in two layers with different rigour.
+  #   lesson_layer  -> novice simulation, in order, full rubric.
+  #   reference_layer ("Technical reference" onward) -> never simulated as a
+  #   beginner. Verified by preflight plus at most `reference_spot_checks`
+  #   targeted claims, and scored only under grounded accuracy and depth.
+  reference_layer_novice_simulation: false
+  reference_spot_checks: 3
+
+  # Refs the reviewer must open in full: those named by a blocking finding,
+  # plus up to this many of the remainder. The rest are covered by the inlined
+  # evidence pack, so "following a reference" costs a read, not a tool round trip.
+  max_full_reference_reads_per_pass: 12
+  max_extra_source_inspections_per_pass: 5
+
+  # Report at most this many blocking findings, highest severity first, merged.
+  # Fewer, sharper findings converge faster than an exhaustive list.
+  max_blocking_findings: 5
+
+  # Stop a full pass as soon as a hard-gate criterion is clearly <=1 and the
+  # defect is not a one-line fix. Return NEEDS_REVISION with only those findings
+  # instead of completing all ten criteria. Most revision rounds should die here.
+  fail_fast_on_hard_criterion: true
+
+  # Let the authoring of the next unit start while this one is under review.
+  pipeline_authoring: true
+  # Reviews of different units are independent. Raise when the harness supports
+  # concurrent subagents; keep at 1 for strictly serial harnesses.
+  max_parallel_reviews: 3
+
+  # Record per-phase wall clock in progress.json so the next run can be measured
+  # instead of guessed. No durations are inferred when a clock is unavailable.
+  record_timings: true
+
+  score_scale: 0-4
+  minimum_accuracy_score: 3
+  minimum_purpose_score: 3
+  minimum_prerequisite_score: 3
+  minimum_conceptual_load_score: 3
+  minimum_cause_effect_score: 3
+  minimum_other_criterion_score: 2
+  minimum_average: 3.0
+  blocking_source_uncertainty_prevents_pass: true
+  retry_policy: revise_and_re_review_until_pass_or_blocked
+  repeated_critical_failure: change_explanation_strategy_or_get_missing_evidence
+  # Convergence, not a step cap: an open-ended loop is why review rounds stall.
+  # Each delta round must strictly reduce the count of open blocking findings.
+  # If it does not, the next round changes teaching approach or asks the Analyst
+  # for the specific evidence, rather than repeating the previous feedback.
+  require_blocking_findings_to_strictly_decrease: true
+  escalation_after_stalled_rounds: 1
+
+teaching:
+  response_length: adaptive
+  fixed_step_count: false
+  fixed_new_term_limit: false
+  fixed_code_line_limit: false
+  fixed_response_word_limit: false
+  prefer_source_grounded_examples: true
+  reveal_deep_technical_reference_progressively: true
+  ask_understanding_checks_when_useful: true
+  force_question_at_end_of_every_turn: false
+
+progress_states:
+  guide: [discovered, mapped, drafted, under_review, approved, blocked, stale]
+  learner: [not_taught, exposed, developing, understood, needs_revisit]

@@ -1,0 +1,25 @@
+# Extend this file based on actual repository discovery. Do not populate invented features.
+# Keep all source scope IDs where they exist and document justified exclusions.
+repository:
+  name: "[discovered repository name]"
+  inspected_at: "[date/commit]"
+  inventory_status: "not_started" # not_started | partial | reconciled
+features:
+  - id: "[native scope ID or stable generated ID]"
+    name: "[learner-friendly feature name]"
+    user_outcome: "[what the feature enables]"
+    source_scopes: []
+    entry_points: []
+    evidence_paths: []
+    prerequisites: []
+    downstream_units: []
+    docs_status: "absent" # current | partial | stale | absent | unverified
+    source_status: "not_inspected" # not_inspected | partially_mapped | mapped | blocked | out_of_scope
+    confidence: "low" # low | medium | high
+    curriculum_order: null
+    guide_path: null
+    review_path: null
+    review_status: "not_started" # not_started | draft | under_review | approved | blocked
+    learning_status: "not_taught" # not_taught | exposed | developing | understood | needs_revisit
+    open_questions: []
+    exclusion_reason: null
