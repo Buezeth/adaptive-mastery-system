@@ -60,6 +60,9 @@ Semantic versioning. A change to the injected `AGENTS.md` block or the `install.
 minor bump at least; a change that breaks existing installations is a major bump. Record every
 user-visible change in `CHANGELOG.md`.
 
+Publishing is documented separately in **[docs/RELEASING.md](docs/RELEASING.md)** — it covers npm's
+current token rules, why `--otp` is unusable with passkey-only 2FA, and the first-publish placeholder.
+
 ## Pull requests
 
 - One concern per PR.
