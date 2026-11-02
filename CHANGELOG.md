@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **Data-driven harness registry** (`HARNESS_REGISTRY` in `install/cli.mjs`): supports `agents`,
+- **Data-driven harness registry** (`HARNESS_REGISTRY` in `install/cli.mjs`): supports `agents`, 
   `claude`, `cursor`, `copilot`, `gemini`, `windsurf`, `cline`, `aider`, plus `--harness custom --file <path>`.
 - **Universal CLI commands**:
   - `adaptive-mastery preflight <guide>`: single cross-platform Node entry point for Stage-0 preflight.
