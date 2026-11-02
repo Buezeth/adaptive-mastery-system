@@ -34,10 +34,10 @@ jobs:
 
       - name: Publish to npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN || secrets.NPM_TOKEN }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::NPM_TOKEN secret is not configured in GitHub repository settings (Settings -> Secrets and variables -> Actions -> New repository secret)."
+            echo "::error::Neither NODE_AUTH_TOKEN nor NPM_TOKEN secret is configured in GitHub repository settings (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
 

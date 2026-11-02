@@ -43,7 +43,7 @@ Use it only for releases. Two ways to supply it:
 
 # B: GitHub Actions automatic publish on git push to main
 # In GitHub -> Settings -> Secrets and variables -> Actions -> New repository secret:
-#   Name:  NPM_TOKEN
+#   Name:  NODE_AUTH_TOKEN  (or NPM_TOKEN)
 #   Value: npm_…
 ```
 
