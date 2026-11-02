@@ -37,14 +37,17 @@ Create a publishing token at <https://www.npmjs.com/settings/~/tokens>:
 Use it only for releases. Two ways to supply it:
 
 ```powershell
-# A: environment variable, per shell
-$env:NPM_TOKEN = 'npm_…'
+# A: project-local .npmrc (already created at repo root and gitignored)
+# Open .npmrc and replace YOUR_NPM_TOKEN_HERE:
+//registry.npmjs.org/:_authToken=npm_…
 
-# B: project-local .npmrc — must stay gitignored
-# //registry.npmjs.org/:_authToken=npm_…
+# B: GitHub Actions automatic publish on git push to main
+# In GitHub -> Settings -> Secrets and variables -> Actions -> New repository secret:
+#   Name:  NPM_TOKEN
+#   Value: npm_…
 ```
 
-Never commit it. `.npmrc` is already in `.gitignore`.
+Never commit `.npmrc`. It is already listed in `.gitignore` and excluded from `package.json` `"files"`, and `.github/workflows/publish.yml` automatically publishes to npm on every push to `main` (auto-bumping the patch version if `package.json` was not manually bumped).
 
 > A config file contains **only** `key=value`. Writing `npm config set …` into `.npmrc` produces a
 > malformed key, and because project config outranks user config, npm then authenticates as nobody.

@@ -1,0 +1,70 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: test & publish to npm
+    runs-on: ubuntu-latest
+    # Skip automated version-bump commits if any
+    if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Verify calibration anchor
+        run: node install/cli.mjs calibrate
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::NPM_TOKEN secret is not configured in GitHub repository settings (Settings -> Secrets and variables -> Actions -> New repository secret)."
+            exit 1
+          fi
+
+          PKG_NAME=$(node -p "require('./package.json').name")
+          LOCAL_VER=$(node -p "require('./package.json').version")
+          NPM_LATEST=$(npm view "$PKG_NAME" version 2>/dev/null || echo "")
+
+          echo "Package: $PKG_NAME | package.json: $LOCAL_VER | npm latest: ${NPM_LATEST:-none}"
+
+          # Check if LOCAL_VER is already published on npm
+          PUBLISHED_MATCH=$(npm view "${PKG_NAME}@${LOCAL_VER}" version 2>/dev/null || echo "")
+
+          if [ -n "$PUBLISHED_MATCH" ]; then
+            # Current package.json version is already on npm; auto-bump patch above npm latest
+            BASE_VER="${NPM_LATEST:-$LOCAL_VER}"
+            NEXT_VER=$(node -e "const [maj,min,pat]=process.argv[1].split('.').map(Number);console.log([maj,min,(pat||0)+1].join('.'))" "$BASE_VER")
+            echo "Version $LOCAL_VER is already published; bumping to $NEXT_VER..."
+            npm version "$NEXT_VER" --no-git-tag-version
+
+            # Commit the bumped package.json back to main when running on a branch push
+            if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add package.json
+              git commit -m "chore(release): v${NEXT_VER} [skip ci]" || true
+              git push origin HEAD:main || true
+            fi
+          fi
+
+          npm publish --access public
