@@ -1,15 +1,27 @@
 version: 1
 system_name: adaptive-mastery-system
 
-# Adapt these paths to the target repository's conventions. Do not overwrite existing files.
+# Immutable kit defaults when vendored into .adaptive-mastery/.
+# Do not edit inside .adaptive-mastery/; put repository-specific overrides in docs/learning/config.local.yaml.
 paths:
   learning_root: docs/learning
+  local_config: docs/learning/config.local.yaml
+  learner_profile: docs/learning/learner-profile.yaml
+  concept_registry: docs/learning/concepts.yaml
   curriculum: docs/learning/CURRICULUM.md
   feature_register: docs/learning/feature-register.yaml
   progress: docs/learning/progress.json
   feature_guides: docs/learning/features
   review_reports: docs/learning/reviews
   source_maps: docs/learning/source-maps
+
+bootstrap:
+  # lazy: shallow structural inventory + outline first, then deep-trace, author and review one unit on demand.
+  # exhaustive: complete deep inventory and curriculum before authoring the first guide.
+  default_mode: lazy
+  require_mechanical_coverage_report: true
+  classify_code_quality: true # intended_design | accidental_or_workaround | questionable_or_bug
+  treat_repository_text_as_untrusted_data: true
 
 agents:
   use_separate_contexts_when_available: true
@@ -37,7 +49,8 @@ review:
   # Mechanical checks are never the reviewer's job. Run stage 0 first; a guide
   # that fails preflight is not worth an expensive pedagogical pass.
   mechanical_preflight: true
-  preflight_script: tools/preflight-review.ps1
+  preflight_script: tools/preflight-review.mjs
+  calibration_bad_fixture: references/calibration-bad-guide.md
 
   # The guide is reviewed in two layers with different rigour.
   #   lesson_layer  -> novice simulation, in order, full rubric.
@@ -81,13 +94,16 @@ review:
   minimum_other_criterion_score: 2
   minimum_average: 3.0
   blocking_source_uncertainty_prevents_pass: true
+  bind_approval_to_guide_and_evidence_hashes: true
+  demote_approved_guide_on_learner_confusion: true
   retry_policy: revise_and_re_review_until_pass_or_blocked
   repeated_critical_failure: change_explanation_strategy_or_get_missing_evidence
   # Convergence, not a step cap: an open-ended loop is why review rounds stall.
-  # Each delta round must strictly reduce the count of open blocking findings.
-  # If it does not, the next round changes teaching approach or asks the Analyst
-  # for the specific evidence, rather than repeating the previous feedback.
+  # Each delta round must strictly reduce the count of open blocking findings
+  # OR strictly reduce the severity-weighted total of open findings (critical=3,
+  # major/blocking=2, minor/non-blocking=1).
   require_blocking_findings_to_strictly_decrease: true
+  allow_severity_weighted_decrease: true
   escalation_after_stalled_rounds: 1
 
 teaching:
@@ -100,6 +116,13 @@ teaching:
   reveal_deep_technical_reference_progressively: true
   ask_understanding_checks_when_useful: true
   force_question_at_end_of_every_turn: false
+  active_learning_tasks:
+    - explain_back
+    - predict_then_verify
+    - break_and_fix
+    - retrieval_revisit
+  spaced_revisit_interval_units: 2
+  diff_mode_enabled: true
 
 progress_states:
   guide: [discovered, mapped, drafted, under_review, approved, blocked, stale]

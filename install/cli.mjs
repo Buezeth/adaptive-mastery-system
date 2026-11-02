@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * adaptive-mastery installer.
+ * adaptive-mastery CLI & installer.
  *
- * Vendors the kit into <target>/.adaptive-mastery/ and wires it into whichever agent
- * harness the project already uses. Idempotent: re-running replaces its own managed
- * block and regenerates vendored files without touching anything outside its markers.
+ * Vendors the immutable kit into <target>/.adaptive-mastery/, seeds mutable user state in
+ * docs/learning/ (only if absent), and wires lightweight pointer adapters into whichever agent
+ * harness(es) the project uses via a data-driven harness registry.
  */
 import { readFile, writeFile, mkdir, rm, readdir, stat, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
+import { dirname, join, resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { main as preflightMain, validateRepositoryState } from '../tools/preflight-review.mjs';
 
 const PKG_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const VENDOR_DIR = '.adaptive-mastery';
@@ -17,20 +18,97 @@ const MARKER_BEGIN = '<!-- adaptive-mastery:begin';
 const MARKER_END = '<!-- adaptive-mastery:end -->';
 const SKILL_SLUG = 'adaptive-mastery';
 
-const PAYLOAD = [
+/**
+ * Immutable kit payload vendored into `.adaptive-mastery/`.
+ * Excludes `docs/` so maintainer-only files (`docs/RELEASING.md`) never land in user repos.
+ * Includes `CURRICULUM_FORMAT.md` and `install/` so local CLI invocations work standalone.
+ */
+export const PAYLOAD = [
   'SKILL.md',
+  'CURRICULUM_FORMAT.md',
   'agents',
   'workflows',
   'templates',
   'config',
   'references',
   'tools',
-  'docs',
+  'install',
 ];
 
-const HARNESSES = ['agents', 'claude', 'cursor'];
+/**
+ * Data-driven harness registry.
+ * Adding a harness is a single entry here plus a table-driven test.
+ */
+export const HARNESS_REGISTRY = [
+  {
+    id: 'agents',
+    detect: ['AGENTS.md'],
+    write: { kind: 'block', file: 'AGENTS.md', template: 'block.md' },
+  },
+  {
+    id: 'claude',
+    detect: ['.claude', 'CLAUDE.md'],
+    write: {
+      kind: 'claude',
+      file: 'CLAUDE.md',
+      skillFile: `.claude/skills/${SKILL_SLUG}/SKILL.md`,
+      skillTemplate: 'claude-skill.md',
+    },
+  },
+  {
+    id: 'cursor',
+    detect: ['.cursor'],
+    write: { kind: 'file', file: `.cursor/rules/${SKILL_SLUG}.mdc`, template: 'cursor-rule.mdc' },
+  },
+  {
+    id: 'copilot',
+    detect: ['.github/copilot-instructions.md'],
+    write: { kind: 'block', file: '.github/copilot-instructions.md', template: 'block.md' },
+  },
+  {
+    id: 'gemini',
+    detect: ['GEMINI.md', '.gemini'],
+    write: { kind: 'block', file: 'GEMINI.md', template: 'block.md' },
+  },
+  {
+    id: 'windsurf',
+    detect: ['.windsurf', '.windsurfrules'],
+    write: { kind: 'file', file: `.windsurf/rules/${SKILL_SLUG}.md`, template: 'stub.md' },
+  },
+  {
+    id: 'cline',
+    detect: ['.clinerules'],
+    write: { kind: 'file', file: `.clinerules/${SKILL_SLUG}.md`, template: 'stub.md' },
+  },
+  {
+    id: 'aider',
+    detect: ['.aider.conf.yml'],
+    write: { kind: 'block', file: 'CONVENTIONS.md', template: 'block.md' },
+  },
+];
 
-const HELP = `adaptive-mastery — repository-aware learning system installer
+export const HARNESSES = HARNESS_REGISTRY.map((h) => h.id);
+
+const LOCAL_CONFIG_SEED = `# Project-local overrides for Adaptive Mastery System.
+# Values here override .adaptive-mastery/config/mastery-system.yaml and survive kit updates.
+#
+# paths:
+#   learning_root: docs/learning
+#
+# bootstrap:
+#   default_mode: lazy
+#
+# review:
+#   max_parallel_reviews: 3
+`;
+
+const LEARNING_GITIGNORE_SEED = `# Personal learner state and session checkpoints are local by default.
+# Remove lines below if your team wants to share learner state in git.
+progress.json
+learner-profile.yaml
+`;
+
+const HELP = `adaptive-mastery — repository-aware learning system CLI
 
 Usage
   adaptive-mastery <command> [options]
@@ -38,16 +116,22 @@ Usage
 Commands
   init       Vendor the kit and wire it into this project   (default)
   update     Re-sync an existing installation, keeping your own edits outside markers
-  doctor     Check that an installation is complete and current
-  uninstall  Remove managed files and the injected instruction block
+  doctor     Check that an installation and its adapters are complete and unmodified
+  uninstall  Remove managed files and injected instruction blocks
+  preflight  Run Stage-0 deterministic checks on a feature guide
+  validate   Validate progress.json, feature-register.yaml, staleness, and file coverage
+  print      Print the rendered instruction block to stdout (for custom instruction boxes)
+  bundle     Produce a single self-contained ADAPTIVE_MASTERY.md for chat/web UIs
   version    Print the installed and package versions
   help       Show this message
 
 Options
-  --target <dir>     Project to install into. Default: current directory
-  --harness <list>   Comma list of: agents, claude, cursor, all. Default: auto-detect
+  --target <dir>     Project directory. Default: current directory
+  --harness <list>   Comma list of: ${HARNESSES.join(', ')}, custom, all. Default: auto-detect
+  --file <path>      Target file when using --harness custom
+  --out <path>       Output file for bundle (default: ADAPTIVE_MASTERY.md in target)
   --dry-run          Report what would change, write nothing
-  --force            Proceed despite local modifications or a non-empty target
+  --force            Proceed despite local modifications to vendored files
   --quiet            Only print errors and the final summary
   --json             Machine-readable result on stdout
 
@@ -69,8 +153,16 @@ async function exists(p) {
   }
 }
 
+/**
+ * Compute SHA-256 over LF-normalized text so Windows core.autocrlf never causes false drift.
+ */
+export function sha256Normalized(content) {
+  const text = typeof content === 'string' ? content : content.toString('utf8');
+  return createHash('sha256').update(text.replace(/\r\n/g, '\n'), 'utf8').digest('hex');
+}
+
 async function sha256File(p) {
-  return createHash('sha256').update(await readFile(p)).digest('hex');
+  return sha256Normalized(await readFile(p, 'utf8'));
 }
 
 async function walk(dir, base = dir) {
@@ -113,22 +205,6 @@ async function readPackage() {
 
 /* --------------------------------------------------------------- payload */
 
-async function payloadFiles() {
-  const files = [];
-  for (const entry of PAYLOAD) {
-    const full = join(PKG_ROOT, entry);
-    if (!(await exists(full))) continue;
-    const info = await stat(full);
-    if (info.isDirectory()) {
-      const inner = await walk(full, full);
-      for (const rel of inner) files.push(toPosix(join(entry, rel)));
-    } else {
-      files.push(entry);
-    }
-  }
-  return files.sort();
-}
-
 async function copyPayload({ target, sourceRoot, dryRun, log }) {
   const vendorRoot = join(target, VENDOR_DIR);
   const files = [];
@@ -142,13 +218,15 @@ async function copyPayload({ target, sourceRoot, dryRun, log }) {
 
     for (const { rel, from: src } of targets) {
       const dest = join(vendorRoot, rel);
+      const raw = await readFile(src, 'utf8');
       if (!dryRun) {
         await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, await readFile(src));
+        await writeFile(dest, raw, 'utf8');
       }
-      files.push({ rel, sha256: await sha256File(src) });
+      files.push({ rel, sha256: sha256Normalized(raw) });
     }
   }
+  files.sort((a, b) => a.rel.localeCompare(b.rel));
   log.info(`  vendored ${files.length} files -> ${toPosix(join(VENDOR_DIR, ''))}`);
   return files;
 }
@@ -168,9 +246,56 @@ async function pruneVendor({ target, files, dryRun, log }) {
   return removed;
 }
 
+/**
+ * Seed mutable user-owned config and learner profile in `docs/learning/` ONLY if absent.
+ * Never overwritten by `update` (even `--force`) and never removed by `uninstall`.
+ */
+async function seedUserState({ target, sourceRoot, dryRun, log }) {
+  const learningDir = join(target, 'docs', 'learning');
+  const localConfigPath = join(learningDir, 'config.local.yaml');
+  const learnerProfilePath = join(learningDir, 'learner-profile.yaml');
+  const gitignorePath = join(learningDir, '.gitignore');
+
+  const seeded = [];
+
+  if (!(await exists(localConfigPath))) {
+    if (!dryRun) {
+      await mkdir(learningDir, { recursive: true });
+      await writeFile(localConfigPath, LOCAL_CONFIG_SEED, 'utf8');
+    }
+    seeded.push(toPosix(relative(target, localConfigPath)));
+  }
+
+  if (!(await exists(learnerProfilePath))) {
+    const templateProfile = await readFile(join(sourceRoot, 'config', 'learner-profile.yaml'), 'utf8');
+    const userCopy = templateProfile.replace(
+      /^# Immutable seed template[^\n]*\n# Do NOT edit[^\n]*\n/,
+      '# Active, mutable learner profile for this repository.\n# Updated from explicit learner feedback during lessons; survives kit updates.\n',
+    );
+    if (!dryRun) {
+      await mkdir(learningDir, { recursive: true });
+      await writeFile(learnerProfilePath, userCopy, 'utf8');
+    }
+    seeded.push(toPosix(relative(target, learnerProfilePath)));
+  }
+
+  if (!(await exists(gitignorePath))) {
+    if (!dryRun) {
+      await mkdir(learningDir, { recursive: true });
+      await writeFile(gitignorePath, LEARNING_GITIGNORE_SEED, 'utf8');
+    }
+    seeded.push(toPosix(relative(target, gitignorePath)));
+  }
+
+  if (seeded.length) {
+    log.info(`  user state (preserved across updates): ${seeded.join(', ')}`);
+  }
+  return seeded;
+}
+
 /* ----------------------------------------------------------------- block */
 
-function blockBody(template, { version, dir }) {
+function renderTemplate(template, { version, dir }) {
   return template
     .replaceAll('{{VERSION}}', version)
     .replaceAll('{{DIR}}', dir)
@@ -189,6 +314,11 @@ function blockPattern() {
   );
 }
 
+function extractManagedBlock(text) {
+  const m = blockPattern().exec(text);
+  return m ? m[0] : null;
+}
+
 function escapeRe(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -204,8 +334,6 @@ async function applyBlock({ file, block, dryRun, log, label, base }) {
   let next;
   let action;
   if (has) {
-    // The pattern stops at the end marker, so replacing with the trimmed body
-    // preserves whatever newline already follows it.
     next = current.replace(pattern, trimmed);
     action = next === current ? 'unchanged' : 'replaced';
   } else if (current.trim() === '') {
@@ -216,10 +344,13 @@ async function applyBlock({ file, block, dryRun, log, label, base }) {
     action = 'appended';
   }
 
-  if (action !== 'unchanged' && !dryRun) await writeFile(file, next);
+  if (action !== 'unchanged' && !dryRun) {
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, next, 'utf8');
+  }
   const shown = base ? toPosix(relative(base, file)) : toPosix(file);
   log.info(`  ${label}: ${action} (${shown})`);
-  return action;
+  return { action, blockSha256: sha256Normalized(trimmed) };
 }
 
 async function stripBlock({ file, dryRun, log, label }) {
@@ -230,108 +361,198 @@ async function stripBlock({ file, dryRun, log, label }) {
     'm',
   );
   if (!pattern.test(current)) return 'absent';
-  // Only normalize the whitespace left where the block was. Never collapse blank
-  // lines elsewhere: they may be meaningful Markdown or code fences.
-  const next = current.replace(pattern, '\n').replace(/\n+$/, '');
-  if (!dryRun) await writeFile(file, next ? `${next}\n` : '');
-  log.info(`  ${label}: removed managed block`);
+  const next = current.replace(pattern, '\n').replace(/\n+$/, '').replace(/^\n+/, '');
+  if (!dryRun) {
+    if (!next.trim()) {
+      // File only held the managed block: delete it rather than leaving a 0-byte orphan.
+      await rm(file, { force: true });
+    } else {
+      await writeFile(file, `${next}\n`, 'utf8');
+    }
+  }
+  log.info(`  ${label}: ${!next.trim() ? 'removed file (was only managed block)' : 'removed managed block'}`);
   return 'removed';
 }
 
 /* -------------------------------------------------------------- adapters */
 
-async function detectHarnesses(target) {
+export async function detectHarnesses(target) {
   const found = new Set();
-  if ((await exists(join(target, 'AGENTS.md'))) || (await exists(join(target, '.git')))) {
-    found.add('agents');
+  for (const entry of HARNESS_REGISTRY) {
+    for (const trigger of entry.detect) {
+      if (await exists(join(target, trigger))) {
+        found.add(entry.id);
+        break;
+      }
+    }
   }
-  if ((await exists(join(target, '.claude'))) || (await exists(join(target, 'CLAUDE.md')))) {
-    found.add('claude');
-  }
-  if (await exists(join(target, '.cursor'))) found.add('cursor');
   if (found.size === 0) found.add('agents');
   return [...found].sort();
 }
 
-function parseHarnesses(raw) {
-  if (!raw) return null;
+export function parseHarnesses(raw, customFile = null) {
+  if (!raw && !customFile) return null;
+  if (!raw && customFile) return ['custom'];
   const parts = raw
     .split(',')
     .map((p) => p.trim().toLowerCase())
     .filter(Boolean);
-  if (parts.includes('all')) return [...HARNESSES];
-  const invalid = parts.filter((p) => !HARNESSES.includes(p));
+  if (parts.includes('all')) {
+    const all = [...HARNESSES];
+    if (customFile && !all.includes('custom')) all.push('custom');
+    return all.sort();
+  }
+  const allowed = new Set([...HARNESSES, 'custom']);
+  const invalid = parts.filter((p) => !allowed.has(p));
   if (invalid.length) {
-    throw new Error(`unknown harness: ${invalid.join(', ')} (expected ${HARNESSES.join(', ')} or all)`);
+    throw new Error(
+      `unknown harness: ${invalid.join(', ')} (expected ${HARNESSES.join(', ')}, custom, or all)`,
+    );
+  }
+  if (parts.includes('custom') && !customFile) {
+    throw new Error('--harness custom requires --file <path>');
   }
   return [...new Set(parts)].sort();
 }
 
-async function writeAdapters({ target, harnesses, version, dryRun, log }) {
+async function writeAdapters({ target, harnesses, customFiles = [], version, dryRun, log }) {
   const written = {};
-  const block = blockBody(await readTemplate('block.md'), { version, dir: VENDOR_DIR });
+  const adapterHashes = [];
+  const fullBlock = renderTemplate(await readTemplate('block.md'), { version, dir: VENDOR_DIR });
+  const claudePointerBlock = renderTemplate(await readTemplate('claude-pointer-block.md'), {
+    version,
+    dir: VENDOR_DIR,
+  });
 
-  if (harnesses.includes('agents')) {
-    written.agents = await applyBlock({
-      file: join(target, 'AGENTS.md'),
-      block,
-      dryRun,
-      log,
-      label: 'AGENTS.md',
-      base: target,
-    });
-  }
+  const agentsActive =
+    harnesses.includes('agents') ||
+    ((await exists(join(target, 'AGENTS.md'))) &&
+      blockPattern().test(await readFile(join(target, 'AGENTS.md'), 'utf8')));
 
-  if (harnesses.includes('claude')) {
-    const skillFile = join(target, '.claude', 'skills', SKILL_SLUG, 'SKILL.md');
-    if (!dryRun) {
-      await mkdir(dirname(skillFile), { recursive: true });
-      // The skill needs its siblings beside SKILL.md, so vendor a copy here too.
-      for (const entry of PAYLOAD) {
-        const from = join(PKG_ROOT, entry);
-        if (!(await exists(from))) continue;
-        const info = await stat(from);
-        const items = info.isDirectory()
-          ? (await walk(from, from)).map((rel) => ({ rel: join(entry, rel), from: join(from, rel) }))
-          : [{ rel: entry, from }];
-        for (const item of items) {
-          const dest = join(dirname(skillFile), item.rel);
-          await mkdir(dirname(dest), { recursive: true });
-          await writeFile(dest, await readFile(item.from));
-        }
+  for (const harnessId of harnesses) {
+    if (harnessId === 'custom') continue;
+    const spec = HARNESS_REGISTRY.find((h) => h.id === harnessId);
+    if (!spec) continue;
+
+    const { write } = spec;
+
+    if (write.kind === 'block') {
+      const absFile = join(target, write.file);
+      const relFile = toPosix(write.file);
+      const res = await applyBlock({
+        file: absFile,
+        block: fullBlock,
+        dryRun,
+        log,
+        label: relFile,
+        base: target,
+      });
+      written[harnessId] = res.action;
+      adapterHashes.push({
+        harness: harnessId,
+        kind: 'block',
+        file: relFile,
+        sha256: res.blockSha256,
+      });
+    } else if (write.kind === 'file') {
+      const absFile = join(target, write.file);
+      const relFile = toPosix(write.file);
+      const rendered = `${renderTemplate(await readTemplate(write.template), {
+        version,
+        dir: VENDOR_DIR,
+      }).trimEnd()}\n`;
+      if (!dryRun) {
+        await mkdir(dirname(absFile), { recursive: true });
+        await writeFile(absFile, rendered, 'utf8');
       }
+      log.info(`  ${relFile}: written`);
+      written[harnessId] = relFile;
+      adapterHashes.push({
+        harness: harnessId,
+        kind: 'file',
+        file: relFile,
+        sha256: sha256Normalized(rendered),
+      });
+    } else if (write.kind === 'claude') {
+      // 1. Write lightweight pointer skill stub (no duplicate copy of PAYLOAD)
+      const skillAbs = join(target, write.skillFile);
+      const skillRel = toPosix(write.skillFile);
+      const skillContent = `${renderTemplate(await readTemplate(write.skillTemplate), {
+        version,
+        dir: VENDOR_DIR,
+      }).trimEnd()}\n`;
+      if (!dryRun) {
+        // Remove any legacy vendored subdirectories inside .claude/skills/adaptive-mastery/
+        const skillDir = dirname(skillAbs);
+        if (await exists(skillDir)) {
+          for (const entry of await readdir(skillDir, { withFileTypes: true })) {
+            if (entry.isDirectory() || entry.name !== 'SKILL.md') {
+              await rm(join(skillDir, entry.name), { recursive: true, force: true });
+            }
+          }
+        }
+        await mkdir(skillDir, { recursive: true });
+        await writeFile(skillAbs, skillContent, 'utf8');
+      }
+      log.info(`  ${skillRel}: written pointer skill`);
+      adapterHashes.push({
+        harness: 'claude',
+        kind: 'file',
+        file: skillRel,
+        sha256: sha256Normalized(skillContent),
+      });
+
+      // 2. Write CLAUDE.md block: use pointer block if AGENTS.md is also active or imported
+      const claudeAbs = join(target, write.file);
+      const claudeRel = toPosix(write.file);
+      const existingClaude = (await exists(claudeAbs)) ? await readFile(claudeAbs, 'utf8') : '';
+      const importsAgents = /@AGENTS\.md\b/.test(existingClaude);
+      const blockToUse = agentsActive || importsAgents ? claudePointerBlock : fullBlock;
+
+      const res = await applyBlock({
+        file: claudeAbs,
+        block: blockToUse,
+        dryRun,
+        log,
+        label: claudeRel,
+        base: target,
+      });
+      written.claude = {
+        skill: skillRel,
+        claudeMd: res.action,
+        mode: agentsActive || importsAgents ? 'pointer' : 'full',
+      };
+      adapterHashes.push({
+        harness: 'claude',
+        kind: 'block',
+        file: claudeRel,
+        sha256: res.blockSha256,
+      });
     }
-    log.info('  .claude/skills/adaptive-mastery/: vendored skill');
-    const claudeMd = await applyBlock({
-      file: join(target, 'CLAUDE.md'),
-      block,
+  }
+
+  for (const customRel of customFiles) {
+    const absFile = resolve(target, customRel);
+    const relFile = toPosix(relative(target, absFile));
+    const res = await applyBlock({
+      file: absFile,
+      block: fullBlock,
       dryRun,
       log,
-      label: 'CLAUDE.md',
+      label: `custom (${relFile})`,
       base: target,
     });
-    written.claude = {
-      skill: toPosix(join('.claude', 'skills', SKILL_SLUG, 'SKILL.md')),
-      claudeMd,
-    };
+    if (!written.custom) written.custom = {};
+    written.custom[relFile] = res.action;
+    adapterHashes.push({
+      harness: 'custom',
+      kind: 'block',
+      file: relFile,
+      sha256: res.blockSha256,
+    });
   }
 
-  if (harnesses.includes('cursor')) {
-    const rule = join(target, '.cursor', 'rules', `${SKILL_SLUG}.mdc`);
-    if (!dryRun) {
-      await mkdir(dirname(rule), { recursive: true });
-      await writeFile(
-        rule,
-        (await readTemplate('cursor-rule.mdc'))
-          .replaceAll('{{VERSION}}', version)
-          .replaceAll('{{DIR}}', VENDOR_DIR),
-      );
-    }
-    log.info('  .cursor/rules/adaptive-mastery.mdc: written');
-    written.cursor = toPosix(join('.cursor', 'rules', `${SKILL_SLUG}.mdc`));
-  }
-
-  return written;
+  return { written, adapterHashes };
 }
 
 /* --------------------------------------------------------------- manifest */
@@ -350,22 +571,33 @@ async function readManifest(target) {
   }
 }
 
-async function writeManifest({ target, version, harnesses, files, adapters, dryRun }) {
+async function writeManifest({
+  target,
+  version,
+  harnesses,
+  customFiles,
+  files,
+  adapters,
+  adapterHashes,
+  dryRun,
+}) {
   const previous = await readManifest(target);
   const now = new Date().toISOString();
   const manifest = {
-    schema: 1,
+    schema: 2,
     package: 'adaptive-mastery',
     version,
     installed_at: previous?.installed_at ?? now,
     updated_at: now,
     harnesses,
+    ...(customFiles.length ? { custom_files: customFiles } : {}),
     adapters,
+    adapter_hashes: adapterHashes,
     files,
   };
   if (!dryRun) {
     await mkdir(join(target, VENDOR_DIR), { recursive: true });
-    await writeFile(manifestPath(target), `${JSON.stringify(manifest, null, 2)}\n`);
+    await writeFile(manifestPath(target), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   }
   return manifest;
 }
@@ -413,7 +645,62 @@ async function detectLocalModifications({ target, manifest }) {
   return changed;
 }
 
-async function install({ target, harnesses: requested, dryRun, force, log, command }) {
+async function detectAdapterProblems({ target, manifest }) {
+  const problems = [];
+  const adapterHashes = manifest.adapter_hashes ?? [];
+
+  if (adapterHashes.length > 0) {
+    for (const entry of adapterHashes) {
+      const abs = join(target, entry.file);
+      if (!(await exists(abs))) {
+        problems.push(`adapter file is missing: ${entry.file} (${entry.harness})`);
+        continue;
+      }
+      const content = await readFile(abs, 'utf8');
+      if (entry.kind === 'file') {
+        if (sha256Normalized(content) !== entry.sha256) {
+          problems.push(`adapter file modified: ${entry.file} (${entry.harness})`);
+        }
+      } else if (entry.kind === 'block') {
+        const block = extractManagedBlock(content);
+        if (!block) {
+          problems.push(`${entry.file} is missing the managed block (${entry.harness})`);
+        } else if (sha256Normalized(block) !== entry.sha256) {
+          problems.push(`${entry.file} managed block was modified (${entry.harness})`);
+        }
+      }
+    }
+    return problems;
+  }
+
+  // Fallback for schema v1 manifests without adapter_hashes
+  for (const harness of manifest.harnesses ?? []) {
+    const spec = HARNESS_REGISTRY.find((h) => h.id === harness);
+    if (!spec) continue;
+    if (spec.write.kind === 'block') {
+      const file = join(target, spec.write.file);
+      const present = (await exists(file)) && blockPattern().test(await readFile(file, 'utf8'));
+      if (!present) problems.push(`${spec.write.file} is missing the managed block`);
+    } else if (spec.write.kind === 'file') {
+      const file = join(target, spec.write.file);
+      if (!(await exists(file))) problems.push(`${spec.write.file} is missing`);
+    } else if (spec.write.kind === 'claude') {
+      const skill = join(target, spec.write.skillFile);
+      if (!(await exists(skill))) problems.push('Claude skill SKILL.md is missing');
+    }
+  }
+  return problems;
+}
+
+async function install({
+  target,
+  harnesses: requested,
+  customFile,
+  dryRun,
+  force,
+  log,
+  command,
+}) {
   const { version } = await readPackage();
   const ok = await guardTarget({ target, force, log, command });
   if (!ok) return 1;
@@ -434,14 +721,51 @@ async function install({ target, harnesses: requested, dryRun, force, log, comma
     }
   }
 
-  const harnesses = requested ?? (existing?.harnesses ?? (await detectHarnesses(target)));
+  // Union harnesses on update (or re-init when existing installation has harnesses) so
+  // `update --harness cursor` after installing `claude` never orphans previously installed adapters.
+  let harnesses;
+  if (requested) {
+    if (command === 'update' && existing?.harnesses) {
+      harnesses = [...new Set([...existing.harnesses, ...requested])].sort();
+    } else {
+      harnesses = requested;
+    }
+  } else {
+    harnesses = existing?.harnesses ?? (await detectHarnesses(target));
+  }
+
+  const prevCustom = existing?.custom_files ?? [];
+  const customFiles = [
+    ...new Set([
+      ...prevCustom,
+      ...(customFile ? [toPosix(relative(target, resolve(target, customFile)))] : []),
+    ]),
+  ].sort();
+
   log.info(`${command === 'update' ? 'Updating' : 'Installing'} adaptive-mastery ${version} -> ${toPosix(target)}`);
   log.info(`  harnesses: ${harnesses.join(', ')}`);
 
   const files = await copyPayload({ target, sourceRoot: PKG_ROOT, dryRun, log });
   await pruneVendor({ target, files, dryRun, log });
-  const adapters = await writeAdapters({ target, harnesses, version, dryRun, log });
-  const manifest = await writeManifest({ target, version, harnesses, files, adapters, dryRun });
+  await seedUserState({ target, sourceRoot: PKG_ROOT, dryRun, log });
+  const { written: adapters, adapterHashes } = await writeAdapters({
+    target,
+    harnesses,
+    customFiles,
+    version,
+    dryRun,
+    log,
+  });
+  const manifest = await writeManifest({
+    target,
+    version,
+    harnesses,
+    customFiles,
+    files,
+    adapters,
+    adapterHashes,
+    dryRun,
+  });
 
   log.summary(
     [
@@ -481,29 +805,28 @@ async function doctor({ target, log, json }) {
   const modified = await detectLocalModifications({ target, manifest });
   for (const entry of modified) problems.push(`vendored file changed or missing: ${entry}`);
 
-  for (const harness of manifest.harnesses) {
-    if (harness === 'agents') {
-      const file = join(target, 'AGENTS.md');
-      const present = (await exists(file)) && blockPattern().test(await readFile(file, 'utf8'));
-      if (!present) problems.push('AGENTS.md is missing the managed block');
-    }
-    if (harness === 'claude') {
-      const skill = join(target, '.claude', 'skills', SKILL_SLUG, 'SKILL.md');
-      if (!(await exists(skill))) problems.push('Claude skill SKILL.md is missing');
-    }
-    if (harness === 'cursor') {
-      const rule = join(target, '.cursor', 'rules', `${SKILL_SLUG}.mdc`);
-      if (!(await exists(rule))) problems.push('Cursor rule is missing');
-    }
-  }
+  const adapterProblems = await detectAdapterProblems({ target, manifest });
+  problems.push(...adapterProblems);
 
   const major = Number(process.versions.node.split('.')[0]);
   if (major < 18) problems.push(`Node ${process.versions.node} is older than the supported 18`);
-  if (manifest.harnesses.length === 0) problems.push('no harness recorded in the manifest');
+  if (!manifest.harnesses || manifest.harnesses.length === 0) {
+    problems.push('no harness recorded in the manifest');
+  }
 
   if (json) {
     process.stdout.write(
-      `${JSON.stringify({ ok: problems.length === 0, version: manifest.version, harnesses: manifest.harnesses, problems, notes }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          ok: problems.length === 0,
+          version: manifest.version,
+          harnesses: manifest.harnesses,
+          problems,
+          notes,
+        },
+        null,
+        2,
+      )}\n`,
     );
   } else {
     log.info(`adaptive-mastery ${manifest.version} at ${toPosix(target)}`);
@@ -528,27 +851,144 @@ async function uninstall({ target, dryRun, log }) {
 
   log.info(`Removing adaptive-mastery ${manifest.version} from ${toPosix(target)}`);
 
-  for (const harness of manifest.harnesses ?? []) {
-    if (harness === 'agents') {
-      await stripBlock({ file: join(target, 'AGENTS.md'), dryRun, log, label: 'AGENTS.md' });
+  const adapterHashes = manifest.adapter_hashes ?? [];
+  if (adapterHashes.length > 0) {
+    for (const entry of adapterHashes) {
+      const abs = join(target, entry.file);
+      if (entry.kind === 'block') {
+        await stripBlock({ file: abs, dryRun, log, label: entry.file });
+      } else if (entry.kind === 'file') {
+        if (!dryRun) await rm(abs, { force: true });
+        log.info(`  ${entry.file}: removed`);
+        if (entry.harness === 'claude') {
+          const skillDir = dirname(abs);
+          if (!dryRun) await rm(skillDir, { recursive: true, force: true });
+        }
+      }
     }
-    if (harness === 'claude') {
-      const skillDir = join(target, '.claude', 'skills', SKILL_SLUG);
-      if (!dryRun) await rm(skillDir, { recursive: true, force: true });
-      log.info('  .claude/skills/adaptive-mastery/: removed');
-      await stripBlock({ file: join(target, 'CLAUDE.md'), dryRun, log, label: 'CLAUDE.md' });
-    }
-    if (harness === 'cursor') {
-      const rule = join(target, '.cursor', 'rules', `${SKILL_SLUG}.mdc`);
-      if (!dryRun) await rm(rule, { force: true });
-      log.info('  .cursor/rules/adaptive-mastery.mdc: removed');
+  } else {
+    // Fallback for schema v1 manifests
+    for (const harness of manifest.harnesses ?? []) {
+      const spec = HARNESS_REGISTRY.find((h) => h.id === harness);
+      if (!spec) continue;
+      if (spec.write.kind === 'block') {
+        await stripBlock({
+          file: join(target, spec.write.file),
+          dryRun,
+          log,
+          label: spec.write.file,
+        });
+      } else if (spec.write.kind === 'file') {
+        if (!dryRun) await rm(join(target, spec.write.file), { force: true });
+        log.info(`  ${spec.write.file}: removed`);
+      } else if (spec.write.kind === 'claude') {
+        const skillDir = dirname(join(target, spec.write.skillFile));
+        if (!dryRun) await rm(skillDir, { recursive: true, force: true });
+        log.info(`  ${toPosix(relative(target, skillDir))}/: removed`);
+        await stripBlock({
+          file: join(target, spec.write.file),
+          dryRun,
+          log,
+          label: spec.write.file,
+        });
+      }
     }
   }
 
   if (!dryRun) await rm(join(target, VENDOR_DIR), { recursive: true, force: true });
   log.info(`  ${VENDOR_DIR}/: removed`);
-  log.summary('\nUninstalled. Files outside the managed block were left untouched.');
+  log.summary('\nUninstalled. Files outside the managed block (including docs/learning/) were left untouched.');
   return 0;
+}
+
+async function printBlock() {
+  const { version } = await readPackage();
+  const block = renderTemplate(await readTemplate('block.md'), { version, dir: VENDOR_DIR });
+  process.stdout.write(`${block.trimEnd()}\n`);
+  return 0;
+}
+
+async function bundleKit({ target, out, dryRun, log }) {
+  const { version } = await readPackage();
+  const sections = [
+    `# Adaptive Mastery System — Self-Contained Bundle (v${version})`,
+    '',
+    '> Generated by `adaptive-mastery bundle`. Use this single-file bundle in chat UIs, web agents, or environments without local kit installation.',
+    '',
+  ];
+
+  const orderedFiles = [
+    'SKILL.md',
+    'CURRICULUM_FORMAT.md',
+    ...(await walk(join(PKG_ROOT, 'agents'), PKG_ROOT)),
+    ...(await walk(join(PKG_ROOT, 'workflows'), PKG_ROOT)),
+    ...(await walk(join(PKG_ROOT, 'templates'), PKG_ROOT)),
+    ...(await walk(join(PKG_ROOT, 'config'), PKG_ROOT)),
+    ...(await walk(join(PKG_ROOT, 'references'), PKG_ROOT)),
+  ];
+
+  for (const rel of orderedFiles) {
+    const abs = join(PKG_ROOT, rel);
+    if (!(await exists(abs))) continue;
+    const content = (await readFile(abs, 'utf8')).replace(/\r\n/g, '\n').trimEnd();
+    sections.push(`---`);
+    sections.push(`<!-- bundle-file: ${rel} -->`);
+    sections.push(`## File: \`${rel}\``);
+    sections.push('');
+    if (rel.endsWith('.yaml') || rel.endsWith('.json')) {
+      const lang = rel.endsWith('.json') ? 'json' : 'yaml';
+      sections.push(`\`\`\`${lang}`);
+      sections.push(content);
+      sections.push('```');
+    } else {
+      sections.push(content);
+    }
+    sections.push('');
+  }
+
+  const bundleText = `${sections.join('\n').trimEnd()}\n`;
+  if (out === '-') {
+    process.stdout.write(bundleText);
+    return 0;
+  }
+
+  const dest = resolve(target, out ?? 'ADAPTIVE_MASTERY.md');
+  if (!dryRun) {
+    await mkdir(dirname(dest), { recursive: true });
+    await writeFile(dest, bundleText, 'utf8');
+  }
+  log.summary(
+    dryRun
+      ? `Dry run: would write bundle (${bundleText.length} bytes) -> ${toPosix(dest)}`
+      : `Bundled Adaptive Mastery System v${version} -> ${toPosix(dest)}`,
+  );
+  return 0;
+}
+
+function runValidate({ target, json, log }) {
+  const res = validateRepositoryState({ repoRoot: target });
+  if (json) {
+    process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
+  } else {
+    log.info(`Validation report for ${res.repo_root}`);
+    log.info(`  progress.json:         ${res.progress_valid === null ? 'absent' : (res.progress_valid ? 'valid' : 'INVALID')}`);
+    log.info(`  feature-register.yaml: ${res.feature_register_valid === null ? 'absent' : (res.feature_register_valid ? 'valid' : 'INVALID')}`);
+    if (res.coverage) {
+      log.info(
+        `  mechanical coverage:   ${res.coverage.cited_source_files}/${res.coverage.total_source_files} source files cited (${Math.round(res.coverage.coverage_ratio * 100)}%)`,
+      );
+      if (res.coverage.uncited_files.length) {
+        log.info(`  uncited source files:  ${res.coverage.uncited_files.join(', ')}`);
+      }
+    }
+    for (const w of res.warnings) log.warn(w);
+    if (res.problems.length === 0) {
+      log.summary('\nState validation passed.');
+    } else {
+      for (const p of res.problems) log.error(p);
+    }
+  }
+  return res.ok ? 0 : 1;
 }
 
 /* ------------------------------------------------------------------- main */
@@ -559,13 +999,27 @@ function parseArgs(argv) {
     command: 'init',
     target: null,
     harness: null,
+    file: null,
+    out: null,
     dryRun: false,
     force: false,
     quiet: false,
     json: false,
+    rawArgs: [],
   };
 
-  const commands = ['init', 'update', 'doctor', 'uninstall', 'version', 'help'];
+  const commands = [
+    'init',
+    'update',
+    'doctor',
+    'uninstall',
+    'preflight',
+    'validate',
+    'print',
+    'bundle',
+    'version',
+    'help',
+  ];
   if (args.length && !args[0].startsWith('-')) {
     const command = args[0].toLowerCase();
     if (!commands.includes(command)) {
@@ -575,17 +1029,28 @@ function parseArgs(argv) {
     args.shift();
   }
 
+  if (options.command === 'preflight') {
+    options.rawArgs = args;
+    return options;
+  }
+
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     const takeValue = (name) => {
       const value = args[++i];
-      if (!value || value.startsWith('--')) throw new Error(`${name} requires a value`);
+      if (!value || (value.startsWith('--') && value !== '-')) {
+        throw new Error(`${name} requires a value`);
+      }
       return value;
     };
     if (arg === '--target') options.target = takeValue('--target');
     else if (arg.startsWith('--target=')) options.target = arg.slice('--target='.length);
     else if (arg === '--harness') options.harness = takeValue('--harness');
     else if (arg.startsWith('--harness=')) options.harness = arg.slice('--harness='.length);
+    else if (arg === '--file') options.file = takeValue('--file');
+    else if (arg.startsWith('--file=')) options.file = arg.slice('--file='.length);
+    else if (arg === '--out') options.out = takeValue('--out');
+    else if (arg.startsWith('--out=')) options.out = arg.slice('--out='.length);
     else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--force') options.force = true;
     else if (arg === '--quiet') options.quiet = true;
@@ -610,6 +1075,14 @@ export async function main(argv = process.argv) {
     return 0;
   }
 
+  if (options.command === 'preflight') {
+    return preflightMain(['node', 'preflight-review.mjs', ...options.rawArgs]);
+  }
+
+  if (options.command === 'print') {
+    return await printBlock();
+  }
+
   const log = createLogger({ quiet: options.quiet, json: options.json });
   const target = resolveTarget(options.target);
 
@@ -622,8 +1095,16 @@ export async function main(argv = process.argv) {
     return 0;
   }
 
+  if (options.command === 'bundle') {
+    return await bundleKit({ target, out: options.out, dryRun: options.dryRun, log });
+  }
+
+  if (options.command === 'validate') {
+    return runValidate({ target, json: options.json, log });
+  }
+
   try {
-    const harnesses = parseHarnesses(options.harness);
+    const harnesses = parseHarnesses(options.harness, options.file);
     if (options.command === 'doctor') return await doctor({ target, log, json: options.json });
     if (options.command === 'uninstall') {
       return await uninstall({ target, dryRun: options.dryRun, log });
@@ -631,6 +1112,7 @@ export async function main(argv = process.argv) {
     const result = await install({
       target,
       harnesses,
+      customFile: options.file,
       dryRun: options.dryRun,
       force: options.force,
       log,
@@ -656,8 +1138,12 @@ async function isDirectInvocation() {
   const thisFile = fileURLToPath(import.meta.url);
   if (!process.argv[1]) return false;
   try {
-    return realpathSync(process.argv[1]) === realpathSync(thisFile);
+    const a = realpathSync(process.argv[1]);
+    const b = realpathSync(thisFile);
+    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
   } catch {
-    return resolve(process.argv[1]) === resolve(thisFile);
+    const a = resolve(process.argv[1]);
+    const b = resolve(thisFile);
+    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
   }
 }

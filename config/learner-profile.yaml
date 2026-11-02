@@ -1,7 +1,8 @@
-# Learner profile initialized only from preferences explicitly expressed in the conversation.
-# Update this from actual feedback; do not infer personal traits from one response.
+# Immutable seed template when vendored into .adaptive-mastery/config/learner-profile.yaml.
+# Do NOT edit the copy inside .adaptive-mastery/.
+# Active learner feedback and preferences are persisted in docs/learning/learner-profile.yaml.
 learner:
-  goal: "Build durable understanding and be able to reason about and explain a codebase independently."
+  goal: "Build durable understanding and be able to reason about, modify, and explain a codebase independently."
   starting_assumption: "Do not assume familiarity with technical terms, tools, frameworks, or architecture choices simply because the learner uses AI to build software."
   explicit_preferences:
     - "Start from the real problem and a concrete example before introducing implementation terminology."
@@ -20,4 +21,4 @@ learner:
   demonstrated_strengths: []
   preferred_examples: []
   feedback_history: []
-  update_policy: "Update only from explicit feedback or observable evidence within lessons. Let the learner correct this profile at any time."
+  update_policy: "Update only from explicit feedback or observable evidence within lessons in docs/learning/learner-profile.yaml. Let the learner correct this profile at any time."

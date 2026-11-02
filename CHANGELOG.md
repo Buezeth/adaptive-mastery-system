@@ -4,45 +4,63 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] — 2026-10-25
-
-First distributable release. The kit was previously a folder copied by hand; it is now an
-installable package with a deterministic review preflight.
+## [1.1.0] — 2026-11-02
 
 ### Added
 
-- **Cross-platform installer** (`adaptive-mastery`): `init`, `update`, `doctor`, `uninstall`,
-  `version`. Vendors the kit into `.adaptive-mastery/`, writes an `install.json` manifest with
-  per-file hashes, and is idempotent via managed markers.
-- **Harness adapters** for `AGENTS.md`-style tools, Claude Code (`.claude/skills/adaptive-mastery/`
-  plus `CLAUDE.md`), and Cursor (`.cursor/rules/adaptive-mastery.mdc`), with auto-detection.
-- **Review preflight** (`tools/preflight-review.mjs`): resolves every learner-facing reference,
-  validates same-document and cross-document anchors, checks required sections, counts evidence
-  rows, and recomputes the approval gate arithmetic. Exits non-zero for CI.
-- **Review staging**: mechanical preflight → inlined evidence pack → layered review → delta rounds.
-- **Two-layer review policy**: the lesson layer is simulated as a beginner; the `Technical reference`
-  appendix is verified mechanically and spot-checked, never read as a novice.
-- **Budgets** for reference reads, extra source inspections, spot checks and blocking findings, plus
-  a strict-decrease convergence rule for revision rounds.
-- **Timing instrumentation** in `progress.json` so a run's cost can be attributed per phase.
-- **35 tests** covering installer idempotency, update/uninstall safety, harness adapters, dry-run,
-  reference extraction, anchor validation and gate arithmetic.
-- `docs/INSTALL.md`, MIT license, changelog, CI workflow across Windows, macOS and Linux.
+- **Data-driven harness registry** (`HARNESS_REGISTRY` in `install/cli.mjs`): supports `agents`,
+  `claude`, `cursor`, `copilot`, `gemini`, `windsurf`, `cline`, `aider`, plus `--harness custom --file <path>`.
+- **Universal CLI commands**:
+  - `adaptive-mastery preflight <guide>`: single cross-platform Node entry point for Stage-0 preflight.
+  - `adaptive-mastery validate`: validates `progress.json` and `feature-register.yaml`, checks approved
+    guides for SHA-256 staleness, and computes a mechanical `git ls-files` coverage report (`uncited_files`).
+  - `adaptive-mastery print`: writes the rendered instruction block to stdout.
+  - `adaptive-mastery bundle`: builds a single self-contained `ADAPTIVE_MASTERY.md` for chat/web UIs.
+- **Evidence pack generator** (`--emit-pack`): deterministically resolves every reference in a guide
+  (by line range, symbol, or heading anchor) and inlines the excerpt and SHA-256 hash.
+- **Mechanical prerequisite and jargon checks**: guides declare `introduces:` and `assumes:` in
+  frontmatter; preflight verifies assumed concepts against earlier units and flags unexplained jargon
+  stacked in the opening section.
+- **Permanent calibration fixture** (`references/calibration-bad-guide.md`) and no-shell fallback
+  checklist (`references/manual-preflight-checklist.md`).
+- **Active learning, diff mode, lazy bootstrap mode, and code-quality classification**:
+  - `lazy` bootstrap mode (default) maps shallowly first and deep-traces/reviews units on demand.
+  - `diff` mode explains AI code changes causally, flags affected guides `stale`, and asks a prediction check.
+  - Analyst and Author classify code as `intended_design`, `accidental_or_workaround`, or `questionable_or_bug`.
+  - Active verification tasks (`explain_back`, `predict_then_verify`, `break_and_fix`, and spaced
+    `retrieval_revisit` via `revisit_queue` in `progress.json`).
+  - Empirical learner confusion signals demote `approved` guides back to `under_review`.
+- **Policy drift test suite** (`tests/policy.test.mjs`) guarding thresholds, payload completeness,
+  and command consistency across all documentation files.
 
 ### Changed
 
-- `workflows/04-independent-review-loop.md` rewritten around the staged pipeline.
-- `agents/04-independent-reviewer.md` gained review modes, the layer policy, budgets and fail-fast.
-- `templates/review-report-template.md` is mode-aware: delta reports carry scores forward instead of
-  restating ten criteria.
-- `SKILL.md`, the orchestrator, the handoff contract and `AGENTS.md` now state the staged rules, so
-  the six copies of the policy no longer drift.
-- PowerShell preflight is now a thin shim over the Node implementation, so behaviour is identical on
-  every platform.
+- **Immutable kit vs mutable user state split**: `.adaptive-mastery/` stays strictly immutable;
+  `init` seeds user-owned `docs/learning/config.local.yaml`, `docs/learning/learner-profile.yaml`,
+  and `docs/learning/.gitignore` only if absent, and `update`/`uninstall` never overwrite or remove them.
+- **Pointer adapters instead of copies**: Claude skill adapter writes a lightweight pointer stub at
+  `.claude/skills/adaptive-mastery/SKILL.md` and uses a pointer block in `CLAUDE.md` when `AGENTS.md`
+  is active so instructions are never loaded twice.
+- **Single source of truth for thresholds**: `parseGate` loads minimum scores directly from
+  `config/mastery-system.yaml` (and `docs/learning/config.local.yaml`).
+- **Delta review scorecards**: keep all 10 rows in the Scorecard table with a `Source` column
+  (`re-scored` vs `carried from iteration N`) so mechanical gate verification succeeds in delta mode.
+- **Severity-weighted convergence**: revision rounds pass convergence when either the open blocking
+  count or the severity-weighted total (`critical=3`, `major/blocking=2`, `minor/non-blocking=1`)
+  strictly decreases.
 
 ### Fixed
 
-- The preflight no longer mistakes an empty generic list for a type error on Windows PowerShell 5.1
-  (the shim removes that path entirely).
-- Managed-block writes no longer accumulate trailing blank lines across repeated installs.
-- Uninstall no longer collapses meaningful blank lines elsewhere in `AGENTS.md`.
+- Preflight now uses `realpathSync` for direct invocation, tracks Markdown code fences and YAML
+  frontmatter, validates `path:line`, `path#L10`, `path -> symbol()`, extensionless files (`Makefile`),
+  directories, duplicate heading slugs (`-1`, `-2`), and rejects empty or `"placeholder"` required sections.
+- Approval is now bound to `guide_sha256` and `evidence_hashes`, automatically flagging edited
+  guides or modified source files as `stale`.
+- Installer normalizes CRLF to LF before hashing, tracks all adapter hashes in `install.json`,
+  unions harnesses on `update --harness`, removes 0-byte created files on `uninstall`, vendors
+  `CURRICULUM_FORMAT.md`, excludes maintainer-only `docs/RELEASING.md`, and strips duplicate skill
+  frontmatter from `references/Adaptive_Mastery_Coach_SKILL.md`.
+
+## [1.0.0] — 2026-10-25
+
+First distributable release.

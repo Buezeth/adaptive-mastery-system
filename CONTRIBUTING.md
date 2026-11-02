@@ -17,8 +17,9 @@ No dependencies. Node 18+ only.
 
 | File | Covers |
 |---|---|
-| `tests/install.test.mjs` | init, idempotency, harness adapters, dry-run, update safety, doctor, uninstall, refusal cases |
-| `tests/preflight.test.mjs` | reference extraction, anchor validation, layer split, gate arithmetic |
+| `tests/install.test.mjs` | init, idempotency, registry harnesses, pointer stubs, custom/print/bundle, kit/state split, CRLF hash normalization, union updates, 0-byte cleanup, doctor, uninstall |
+| `tests/preflight.test.mjs` | reference extraction (`:line`, `#L10`, `-> symbol()`, `Makefile`, directories), fence tracking, duplicate `-1` anchors, placeholder detection, `introduces`/`assumes`, known-bad calibration fixture, `--emit-pack`, delta scorecard, SHA-256 staleness, `validate` |
+| `tests/policy.test.mjs` | guards against legacy PowerShell script references, unlinked skills, missing `PAYLOAD` files, and threshold drift between `config/mastery-system.yaml` and the policy docs |
 
 If you change the installer's on-disk behaviour or the preflight's output shape, change the tests in
 the same commit. `install.json` and the preflight JSON are public contracts — the workflow docs and
@@ -26,21 +27,20 @@ the review template read them.
 
 ## Adding a harness
 
-1. Add the name to `HARNESSES` in `install/cli.mjs`.
-2. Teach `detectHarnesses` how to recognise it.
-3. Write its adapter in `writeAdapters` and add it to `uninstall` and `doctor`.
-4. Add a test that installs only that harness and asserts the file it writes.
-5. Document the trigger and the file in `docs/INSTALL.md` and `README.md`.
+1. Add a single entry to `HARNESS_REGISTRY` in `install/cli.mjs` (`id`, `detect`, `write`).
+2. Add a test in `tests/install.test.mjs` that installs that harness and asserts the adapter it writes and removes.
+3. Document the trigger and the file in `docs/INSTALL.md` and `README.md`.
 
-Adapters must be idempotent and must never modify content outside their own markers or files.
+Adapters must be idempotent, tracked in `manifest.adapter_hashes` with LF-normalized SHA-256 hashes,
+and must never modify content outside their own markers or files.
 
 ## Changing the review policy
 
-The review rules are intentionally stated in several places — `SKILL.md`, `AGENTS.md`,
-`agents/00-orchestrator.md`, `agents/04-independent-reviewer.md`, `workflows/04-*.md`,
-`agents/HANDOFF_CONTRACT.md`, and `config/mastery-system.yaml`. When you change a rule, update every
-copy in the same commit, or the instructions will contradict each other at the exact moment an agent
-is choosing which one to follow.
+The review rules are stated in `SKILL.md`, `AGENTS.md`, `agents/00-orchestrator.md`,
+`agents/04-independent-reviewer.md`, `workflows/04-independent-review-loop.md`,
+`agents/HANDOFF_CONTRACT.md`, and `config/mastery-system.yaml`. When you change a rule or threshold,
+update every copy in the same commit—`tests/policy.test.mjs` fails CI if the documented numbers
+drift from `config/mastery-system.yaml`.
 
 Any new limit must bound **review mechanics** (tool calls, reads, findings per report), never
 explanation depth. The kit deliberately has no word, step, or concept caps.
@@ -51,8 +51,9 @@ explanation depth. The kit deliberately has no word, step, or concept caps.
 - State the cost a rule protects against, in one clause. Future readers delete rules whose purpose
   is invisible.
 - Do not add network calls, runtime dependencies, or telemetry to the installer.
-- Keep the kit usable without Node: everything in `agents/`, `workflows/`, `templates/`, and
-  `config/` must stay plain Markdown/YAML.
+- Keep the kit usable without Node: everything in `agents/`, `workflows/`, `templates/`,
+  `references/`, and `config/` must stay plain Markdown/YAML, with `references/manual-preflight-checklist.md`
+  supporting no-shell environments.
 
 ## Versioning
 
@@ -60,8 +61,8 @@ Semantic versioning. A change to the injected `AGENTS.md` block or the `install.
 minor bump at least; a change that breaks existing installations is a major bump. Record every
 user-visible change in `CHANGELOG.md`.
 
-Publishing is documented separately in **[docs/RELEASING.md](docs/RELEASING.md)** — it covers npm's
-current token rules, why `--otp` is unusable with passkey-only 2FA, and the first-publish placeholder.
+Publishing is documented separately in **[docs/RELEASING.md](docs/RELEASING.md)** (which is excluded
+from vendored installs and npm tarballs).
 
 ## Pull requests
 

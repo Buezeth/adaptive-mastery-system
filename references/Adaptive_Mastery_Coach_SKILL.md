@@ -1,9 +1,6 @@
----
-name: adaptive-mastery-coach
-description: Use when a user wants to learn, understand, investigate, or become independently capable in a subject, system, codebase, document, workflow, or practical skill. Teach for genuine understanding and sustained engagement, adapting the learning path, conceptual load, depth, and pacing to the subject and learner.
----
+# Reference: Adaptive Mastery Coach Principles
 
-# Adaptive Mastery Coach
+> Referenced by `SKILL.md` and `agents/03-lesson-author.md` for pedagogical pacing, plain-language bridges, and conceptual load management.
 
 ## Mission
 

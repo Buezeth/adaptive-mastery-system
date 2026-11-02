@@ -1,15 +1,20 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "repository": {
     "name": "",
     "revision": null,
-    "last_inspected_at": null
+    "last_inspected_at": null,
+    "bootstrap_mode": "lazy"
   },
   "coverage": {
     "inventory_status": "not_started",
     "identified_features": null,
     "mapped_features": null,
     "approved_guides": null,
+    "total_source_files": null,
+    "cited_source_files": null,
+    "coverage_ratio": null,
+    "uncited_files": [],
     "uninspected_areas": [],
     "excluded_features_with_reasons": []
   },
@@ -20,16 +25,20 @@
     "next_action": "initialize repository inventory"
   },
   "learner_model": {
+    "profile_path": "docs/learning/learner-profile.yaml",
     "stated_background": [],
     "concepts": {},
     "confusions": [],
     "demonstrated_strengths": [],
     "preferred_explanation_approaches": [],
-    "feedback_to_respect": []
+    "feedback_to_respect": [],
+    "revisit_queue": [],
+    "completed_verification_tasks": []
   },
   "session_checkpoint": {
     "last_unit_id": null,
     "last_guide_version": null,
+    "last_guide_sha256": null,
     "last_review_status": null,
     "lesson_position": null,
     "what_was_explained": [],
@@ -40,6 +49,7 @@
   "review_loop": {
     "latest_reports": {},
     "blocked_guides": [],
+    "demoted_guides": [],
     "timings": {
       "discovery": { "started_at": null, "ended_at": null, "duration_seconds": null },
       "curriculum": { "started_at": null, "ended_at": null, "duration_seconds": null },
