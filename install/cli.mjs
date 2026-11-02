@@ -175,19 +175,104 @@ async function walk(dir, base = dir) {
   return out.sort();
 }
 
-function createLogger({ quiet, json }) {
+function isColorEnabled(noColorFlag = false) {
+  if (noColorFlag || process.env.NO_COLOR !== undefined) return false;
+  if (process.env.FORCE_COLOR !== undefined && process.env.FORCE_COLOR !== '0') return true;
+  return Boolean(process.stdout.isTTY);
+}
+
+function createTheme(enabled = isColorEnabled()) {
+  const wrap = (open, close = '\x1b[0m') => (text) => (enabled ? `${open}${text}${close}` : String(text));
+  return {
+    enabled,
+    bold: wrap('\x1b[1m', '\x1b[22m'),
+    dim: wrap('\x1b[2m', '\x1b[22m'),
+    italic: wrap('\x1b[3m', '\x1b[23m'),
+    cyan: wrap('\x1b[36m'),
+    brightCyan: wrap('\x1b[96m'),
+    green: wrap('\x1b[32m'),
+    emerald: wrap('\x1b[92m'),
+    yellow: wrap('\x1b[33m'),
+    amber: wrap('\x1b[93m'),
+    red: wrap('\x1b[31m'),
+    rose: wrap('\x1b[91m'),
+    magenta: wrap('\x1b[35m'),
+    violet: wrap('\x1b[95m'),
+    white: wrap('\x1b[97m'),
+    gray: wrap('\x1b[90m'),
+    bgCyan: wrap('\x1b[46m\x1b[30m\x1b[1m'),
+    bgEmerald: wrap('\x1b[102m\x1b[30m\x1b[1m'),
+    bgViolet: wrap('\x1b[45m\x1b[97m\x1b[1m'),
+    bgAmber: wrap('\x1b[43m\x1b[30m\x1b[1m'),
+    bgRose: wrap('\x1b[41m\x1b[97m\x1b[1m'),
+  };
+}
+
+function renderBanner(t, version, subtitle = null) {
+  const arrow = t.gray('──►');
+  const pipeline = [
+    t.brightCyan('Discover'),
+    t.cyan('Order'),
+    t.violet('Author'),
+    t.amber('Preflight'),
+    t.emerald('Review'),
+    t.bold(t.white('Teach')),
+  ].join(` ${arrow} `);
+
+  const verTag = `v${version}`;
+  const mid1Pad = ' '.repeat(Math.max(1, 19 - verTag.length));
+  const top = t.gray('╭──────────────────────────────────────────────────────────────────────╮');
+  const mid1 = `${t.gray('│')}  ${t.bgCyan(' ◆ ADAPTIVE MASTERY ')} ${t.bold(t.white('Repository Learning System'))}${mid1Pad}${t.dim(verTag)}  ${t.gray('│')}`;
+  const mid2 = `${t.gray('│')}  ${pipeline}    ${t.gray('│')}`;
+  const bot = t.gray('╰──────────────────────────────────────────────────────────────────────╯');
+  const lines = ['', top, mid1, mid2, bot];
+  if (subtitle) lines.push(`${t.gray('│')}  ${subtitle}`);
+  return lines.join('\n');
+}
+
+function actionBadge(t, action) {
+  switch (action) {
+    case 'created':
+    case 'written':
+    case 'written pointer skill':
+      return t.emerald(`✦ ${action}`);
+    case 'replaced':
+    case 'updated':
+      return t.brightCyan(`↻ ${action}`);
+    case 'appended':
+      return t.cyan(`＋ ${action}`);
+    case 'unchanged':
+      return t.gray(`• ${action}`);
+    case 'removed':
+      return t.amber(`－ ${action}`);
+    default:
+      return t.cyan(action);
+  }
+}
+
+function progressBar(t, ratio, width = 20) {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const filled = Math.round(clamped * width);
+  const empty = width - filled;
+  const color = clamped >= 0.8 ? t.emerald : clamped >= 0.4 ? t.amber : t.rose;
+  return `${color('█'.repeat(filled))}${t.gray('░'.repeat(empty))} ${t.bold(`${Math.round(clamped * 100)}%`)}`;
+}
+
+function createLogger({ quiet, json, noColor = false }) {
   const lines = [];
+  const t = createTheme(isColorEnabled(noColor));
   return {
     lines,
+    t,
     info(message) {
       if (!quiet && !json) process.stdout.write(`${message}\n`);
     },
     warn(message) {
-      if (!json) process.stderr.write(`warning: ${message}\n`);
+      if (!json) process.stderr.write(`${t.amber('▲ warning:')} ${message}\n`);
       lines.push(`warning: ${message}`);
     },
     error(message) {
-      process.stderr.write(`error: ${message}\n`);
+      process.stderr.write(`${t.rose('✖ error:')} ${message}\n`);
       lines.push(`error: ${message}`);
     },
     summary(message) {
@@ -206,6 +291,7 @@ async function readPackage() {
 /* --------------------------------------------------------------- payload */
 
 async function copyPayload({ target, sourceRoot, dryRun, log }) {
+  const { t } = log;
   const vendorRoot = join(target, VENDOR_DIR);
   const files = [];
   for (const entry of PAYLOAD) {
@@ -227,11 +313,18 @@ async function copyPayload({ target, sourceRoot, dryRun, log }) {
     }
   }
   files.sort((a, b) => a.rel.localeCompare(b.rel));
-  log.info(`  vendored ${files.length} files -> ${toPosix(join(VENDOR_DIR, ''))}`);
+  log.info(`${t.gray('│')}`);
+  log.info(
+    `${t.cyan('◆')}  ${t.bold('Immutable Kit')}  ${t.dim('──►')} ${t.brightCyan(`${toPosix(VENDOR_DIR)}/`)} ${t.gray(`(${files.length} files · SHA-256 locked)`)}`,
+  );
+  log.info(
+    `${t.gray('│')}  ${t.gray('└─')} ${t.dim('SKILL.md · 5 role agents · 4 workflows · 4 templates · preflight CLI')}`,
+  );
   return files;
 }
 
 async function pruneVendor({ target, files, dryRun, log }) {
+  const { t } = log;
   const vendorRoot = join(target, VENDOR_DIR);
   if (!(await exists(vendorRoot))) return 0;
   const keep = new Set(files.map((f) => toPosix(f.rel)));
@@ -242,7 +335,7 @@ async function pruneVendor({ target, files, dryRun, log }) {
     if (!dryRun) await rm(join(vendorRoot, rel), { force: true });
     removed += 1;
   }
-  if (removed) log.info(`  pruned ${removed} stale file(s)`);
+  if (removed) log.info(`${t.gray('│')}  ${t.amber(`✂ pruned ${removed} stale file(s)`)}`);
   return removed;
 }
 
@@ -251,12 +344,14 @@ async function pruneVendor({ target, files, dryRun, log }) {
  * Never overwritten by `update` (even `--force`) and never removed by `uninstall`.
  */
 async function seedUserState({ target, sourceRoot, dryRun, log }) {
+  const { t } = log;
   const learningDir = join(target, 'docs', 'learning');
   const localConfigPath = join(learningDir, 'config.local.yaml');
   const learnerProfilePath = join(learningDir, 'learner-profile.yaml');
   const gitignorePath = join(learningDir, '.gitignore');
 
   const seeded = [];
+  const preserved = [];
 
   if (!(await exists(localConfigPath))) {
     if (!dryRun) {
@@ -264,6 +359,8 @@ async function seedUserState({ target, sourceRoot, dryRun, log }) {
       await writeFile(localConfigPath, LOCAL_CONFIG_SEED, 'utf8');
     }
     seeded.push(toPosix(relative(target, localConfigPath)));
+  } else {
+    preserved.push(toPosix(relative(target, localConfigPath)));
   }
 
   if (!(await exists(learnerProfilePath))) {
@@ -277,6 +374,8 @@ async function seedUserState({ target, sourceRoot, dryRun, log }) {
       await writeFile(learnerProfilePath, userCopy, 'utf8');
     }
     seeded.push(toPosix(relative(target, learnerProfilePath)));
+  } else {
+    preserved.push(toPosix(relative(target, learnerProfilePath)));
   }
 
   if (!(await exists(gitignorePath))) {
@@ -285,10 +384,19 @@ async function seedUserState({ target, sourceRoot, dryRun, log }) {
       await writeFile(gitignorePath, LEARNING_GITIGNORE_SEED, 'utf8');
     }
     seeded.push(toPosix(relative(target, gitignorePath)));
+  } else {
+    preserved.push(toPosix(relative(target, gitignorePath)));
   }
 
-  if (seeded.length) {
-    log.info(`  user state (preserved across updates): ${seeded.join(', ')}`);
+  log.info(`${t.gray('│')}`);
+  log.info(
+    `${t.violet('◆')}  ${t.bold('Learner State')}  ${t.dim('──►')} ${t.violet('docs/learning/')} ${t.gray('(mutable · survives kit updates)')}`,
+  );
+  for (const rel of seeded) {
+    log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'created')}  ${t.white(rel)}`);
+  }
+  for (const rel of preserved) {
+    log.info(`${t.gray('│')}  ${t.gray('├─')} ${t.cyan('🛡 preserved')} ${t.dim(rel)}`);
   }
   return seeded;
 }
@@ -324,6 +432,7 @@ function escapeRe(value) {
 }
 
 async function applyBlock({ file, block, dryRun, log, label, base }) {
+  const { t } = log;
   const normalized = `${block.trimEnd()}\n`;
   const trimmed = normalized.trimEnd();
   const existsAlready = await exists(file);
@@ -349,11 +458,12 @@ async function applyBlock({ file, block, dryRun, log, label, base }) {
     await writeFile(file, next, 'utf8');
   }
   const shown = base ? toPosix(relative(base, file)) : toPosix(file);
-  log.info(`  ${label}: ${action} (${shown})`);
+  log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, action)}  ${t.bold(label)} ${t.dim(`(${shown})`)}`);
   return { action, blockSha256: sha256Normalized(trimmed) };
 }
 
 async function stripBlock({ file, dryRun, log, label }) {
+  const { t } = log;
   if (!(await exists(file))) return 'absent';
   const current = await readFile(file, 'utf8');
   const pattern = new RegExp(
@@ -370,7 +480,9 @@ async function stripBlock({ file, dryRun, log, label }) {
       await writeFile(file, `${next}\n`, 'utf8');
     }
   }
-  log.info(`  ${label}: ${!next.trim() ? 'removed file (was only managed block)' : 'removed managed block'}`);
+  log.info(
+    `${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(label)} ${t.dim(!next.trim() ? '(deleted empty file)' : '(stripped managed block)')}`,
+  );
   return 'removed';
 }
 
@@ -416,6 +528,7 @@ export function parseHarnesses(raw, customFile = null) {
 }
 
 async function writeAdapters({ target, harnesses, customFiles = [], version, dryRun, log }) {
+  const { t } = log;
   const written = {};
   const adapterHashes = [];
   const fullBlock = renderTemplate(await readTemplate('block.md'), { version, dir: VENDOR_DIR });
@@ -423,6 +536,9 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
     version,
     dir: VENDOR_DIR,
   });
+
+  log.info(`${t.gray('│')}`);
+  log.info(`${t.emerald('◆')}  ${t.bold('Harness Adapters')}`);
 
   const agentsActive =
     harnesses.includes('agents') ||
@@ -465,7 +581,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         await mkdir(dirname(absFile), { recursive: true });
         await writeFile(absFile, rendered, 'utf8');
       }
-      log.info(`  ${relFile}: written`);
+      log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'written')}  ${t.bold(relFile)}`);
       written[harnessId] = relFile;
       adapterHashes.push({
         harness: harnessId,
@@ -494,7 +610,9 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         await mkdir(skillDir, { recursive: true });
         await writeFile(skillAbs, skillContent, 'utf8');
       }
-      log.info(`  ${skillRel}: written pointer skill`);
+      log.info(
+        `${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'written pointer skill')}  ${t.bold(skillRel)}`,
+      );
       adapterHashes.push({
         harness: 'claude',
         kind: 'file',
@@ -701,6 +819,7 @@ async function install({
   log,
   command,
 }) {
+  const { t } = log;
   const { version } = await readPackage();
   const ok = await guardTarget({ target, force, log, command });
   if (!ok) return 1;
@@ -742,8 +861,14 @@ async function install({
     ]),
   ].sort();
 
-  log.info(`${command === 'update' ? 'Updating' : 'Installing'} adaptive-mastery ${version} -> ${toPosix(target)}`);
-  log.info(`  harnesses: ${harnesses.join(', ')}`);
+  const harnessPills = harnesses.map((h) => t.brightCyan(`[${h}]`)).join(' ');
+  const modeBadge = dryRun ? ` ${t.bgAmber(' DRY RUN ')}` : '';
+  log.info(renderBanner(t, version));
+  log.info(
+    `${t.brightCyan('┌')}  ${t.bold(command === 'update' ? 'Updating installation' : 'Initializing repository learning system')}${modeBadge}`,
+  );
+  log.info(`${t.gray('│')}  ${t.dim('target:')}    ${t.white(toPosix(target))}`);
+  log.info(`${t.gray('│')}  ${t.dim('harnesses:')} ${harnessPills}`);
 
   const files = await copyPayload({ target, sourceRoot: PKG_ROOT, dryRun, log });
   await pruneVendor({ target, files, dryRun, log });
@@ -767,15 +892,22 @@ async function install({
     dryRun,
   });
 
+  const statusLine = dryRun
+    ? `${t.amber('◆')}  ${t.bold(t.amber('Dry run complete'))} ${t.dim('— no files were written to disk.')}`
+    : `${t.emerald('✔')}  ${t.bold(t.emerald(`Installed adaptive-mastery v${version}`))} ${t.dim(`(${toPosix(join(VENDOR_DIR, 'install.json'))})`)}`;
+
   log.summary(
     [
+      `${t.gray('│')}`,
+      `${t.brightCyan('└')}  ${statusLine}`,
       '',
-      dryRun ? 'Dry run complete — nothing was written.' : `Installed adaptive-mastery ${version}.`,
-      `  kit:      ${toPosix(join(VENDOR_DIR, ''))}`,
-      `  manifest: ${toPosix(join(VENDOR_DIR, 'install.json'))}`,
-      '',
-      'Next step: open the project in your agent and ask it to initialize the learning library.',
-      '  "Initialize the Adaptive Mastery System for this repository."',
+      `   ${t.gray('╭─')} ${t.bold(t.brightCyan('Next step — paste into your AI agent'))} ${t.gray('─────────────────────────────╮')}`,
+      `   ${t.gray('│')}                                                                     ${t.gray('│')}`,
+      `   ${t.gray('│')}  ${t.emerald('❯')} ${t.bold(t.white('"Initialize the Adaptive Mastery System for this repository."'))}  ${t.gray('│')}`,
+      `   ${t.gray('│')}                                                                     ${t.gray('│')}`,
+      `   ${t.gray('│')}  ${t.dim('Health check:')} ${t.cyan('adaptive-mastery doctor')}                              ${t.gray('│')}`,
+      `   ${t.gray('│')}  ${t.dim('Coverage:')}     ${t.cyan('adaptive-mastery validate')}                            ${t.gray('│')}`,
+      `   ${t.gray('╰─────────────────────────────────────────────────────────────────────╯')}`,
       '',
     ].join('\n'),
   );
@@ -783,6 +915,7 @@ async function install({
 }
 
 async function doctor({ target, log, json }) {
+  const { t } = log;
   const problems = [];
   const notes = [];
 
@@ -829,12 +962,20 @@ async function doctor({ target, log, json }) {
       )}\n`,
     );
   } else {
-    log.info(`adaptive-mastery ${manifest.version} at ${toPosix(target)}`);
-    log.info(`  harnesses: ${manifest.harnesses.join(', ') || '(none)'}`);
-    log.info(`  files:     ${manifest.files.length}`);
-    for (const note of notes) log.info(`  note: ${note}`);
-    if (problems.length === 0) log.summary('\nInstallation is healthy.');
-    else {
+    const harnessPills = (manifest.harnesses ?? []).map((h) => t.brightCyan(`[${h}]`)).join(' ') || t.dim('(none)');
+    log.info(renderBanner(t, manifest.version));
+    log.info(`${t.brightCyan('┌')}  ${t.bold('Installation Doctor')} ${t.dim('──►')} ${t.white(toPosix(target))}`);
+    log.info(`${t.gray('│')}  ${t.dim('harnesses:')} ${harnessPills}`);
+    log.info(
+      `${t.gray('│')}  ${t.dim('kit files:')} ${t.white(manifest.files.length)} ${t.gray('(LF-normalized SHA-256 verified)')}`,
+    );
+    log.info(
+      `${t.gray('│')}  ${t.dim('adapters:')}  ${t.white((manifest.adapter_hashes ?? []).length)} ${t.gray('tracked')}`,
+    );
+    for (const note of notes) log.info(`${t.gray('│')}  ${t.amber('ℹ')} ${note}`);
+    if (problems.length === 0) {
+      log.summary(`${t.brightCyan('└')}  ${t.emerald('✔')} ${t.bold(t.emerald('Installation is healthy.'))}\n`);
+    } else {
       log.warn(`${problems.length} problem(s) found`);
       for (const problem of problems) log.error(problem);
     }
@@ -843,13 +984,17 @@ async function doctor({ target, log, json }) {
 }
 
 async function uninstall({ target, dryRun, log }) {
+  const { t } = log;
   const manifest = await readManifest(target);
   if (!manifest) {
     log.warn(`no installation found at ${toPosix(target)}; nothing to remove`);
     return 0;
   }
 
-  log.info(`Removing adaptive-mastery ${manifest.version} from ${toPosix(target)}`);
+  log.info('');
+  log.info(
+    `${t.amber('┌')}  ${t.bold(`Uninstalling adaptive-mastery v${manifest.version}`)} ${t.dim('──►')} ${t.white(toPosix(target))}`,
+  );
 
   const adapterHashes = manifest.adapter_hashes ?? [];
   if (adapterHashes.length > 0) {
@@ -859,7 +1004,7 @@ async function uninstall({ target, dryRun, log }) {
         await stripBlock({ file: abs, dryRun, log, label: entry.file });
       } else if (entry.kind === 'file') {
         if (!dryRun) await rm(abs, { force: true });
-        log.info(`  ${entry.file}: removed`);
+        log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(entry.file)}`);
         if (entry.harness === 'claude') {
           const skillDir = dirname(abs);
           if (!dryRun) await rm(skillDir, { recursive: true, force: true });
@@ -880,11 +1025,13 @@ async function uninstall({ target, dryRun, log }) {
         });
       } else if (spec.write.kind === 'file') {
         if (!dryRun) await rm(join(target, spec.write.file), { force: true });
-        log.info(`  ${spec.write.file}: removed`);
+        log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(spec.write.file)}`);
       } else if (spec.write.kind === 'claude') {
         const skillDir = dirname(join(target, spec.write.skillFile));
         if (!dryRun) await rm(skillDir, { recursive: true, force: true });
-        log.info(`  ${toPosix(relative(target, skillDir))}/: removed`);
+        log.info(
+          `${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(toPosix(relative(target, skillDir)))}/`,
+        );
         await stripBlock({
           file: join(target, spec.write.file),
           dryRun,
@@ -896,8 +1043,10 @@ async function uninstall({ target, dryRun, log }) {
   }
 
   if (!dryRun) await rm(join(target, VENDOR_DIR), { recursive: true, force: true });
-  log.info(`  ${VENDOR_DIR}/: removed`);
-  log.summary('\nUninstalled. Files outside the managed block (including docs/learning/) were left untouched.');
+  log.info(`${t.gray('│')}  ${t.gray('└─')} ${actionBadge(t, 'removed')}  ${t.bold(`${VENDOR_DIR}/`)}`);
+  log.summary(
+    `${t.amber('└')}  ${t.emerald('✔')} ${t.bold('Uninstalled.')} ${t.dim('Files outside the managed block (including docs/learning/) were left untouched.')}\n`,
+  );
   return 0;
 }
 
@@ -909,6 +1058,7 @@ async function printBlock() {
 }
 
 async function bundleKit({ target, out, dryRun, log }) {
+  const { t } = log;
   const { version } = await readPackage();
   const sections = [
     `# Adaptive Mastery System — Self-Contained Bundle (v${version})`,
@@ -959,31 +1109,42 @@ async function bundleKit({ target, out, dryRun, log }) {
   }
   log.summary(
     dryRun
-      ? `Dry run: would write bundle (${bundleText.length} bytes) -> ${toPosix(dest)}`
-      : `Bundled Adaptive Mastery System v${version} -> ${toPosix(dest)}`,
+      ? `${t.amber('◆')} Dry run: would write bundle (${bundleText.length} bytes) -> ${t.brightCyan(toPosix(dest))}`
+      : `${t.emerald('✔')} ${t.bold(`Bundled Adaptive Mastery System v${version}`)} ${t.dim('──►')} ${t.brightCyan(toPosix(dest))} ${t.gray(`(${orderedFiles.length} files, ${bundleText.length} bytes)`)}`,
   );
   return 0;
 }
 
 function runValidate({ target, json, log }) {
+  const { t } = log;
   const res = validateRepositoryState({ repoRoot: target });
   if (json) {
     process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
   } else {
-    log.info(`Validation report for ${res.repo_root}`);
-    log.info(`  progress.json:         ${res.progress_valid === null ? 'absent' : (res.progress_valid ? 'valid' : 'INVALID')}`);
-    log.info(`  feature-register.yaml: ${res.feature_register_valid === null ? 'absent' : (res.feature_register_valid ? 'valid' : 'INVALID')}`);
+    const badge = (state) =>
+      state === null
+        ? t.gray('○ absent')
+        : state
+          ? t.emerald('✔ valid')
+          : t.rose('✖ INVALID');
+
+    log.info('');
+    log.info(`${t.brightCyan('┌')}  ${t.bold('Learning Library & Coverage Validator')} ${t.dim('──►')} ${t.white(res.repo_root)}`);
+    log.info(`${t.gray('│')}  ${t.gray('├─')} progress.json:         ${badge(res.progress_valid)}`);
+    log.info(`${t.gray('│')}  ${t.gray('├─')} feature-register.yaml: ${badge(res.feature_register_valid)}`);
     if (res.coverage) {
       log.info(
-        `  mechanical coverage:   ${res.coverage.cited_source_files}/${res.coverage.total_source_files} source files cited (${Math.round(res.coverage.coverage_ratio * 100)}%)`,
+        `${t.gray('│')}  ${t.gray('├─')} mechanical coverage:   ${progressBar(t, res.coverage.coverage_ratio)} ${t.dim(`(${res.coverage.cited_source_files}/${res.coverage.total_source_files} source files cited)`)}`,
       );
       if (res.coverage.uncited_files.length) {
-        log.info(`  uncited source files:  ${res.coverage.uncited_files.join(', ')}`);
+        log.info(
+          `${t.gray('│')}  ${t.gray('└─')} ${t.amber('uncited files:')}         ${t.dim(res.coverage.uncited_files.join(', '))}`,
+        );
       }
     }
     for (const w of res.warnings) log.warn(w);
     if (res.problems.length === 0) {
-      log.summary('\nState validation passed.');
+      log.summary(`${t.brightCyan('└')}  ${t.emerald('✔')} ${t.bold(t.emerald('State validation passed.'))}\n`);
     } else {
       for (const p of res.problems) log.error(p);
     }
@@ -1005,6 +1166,7 @@ function parseArgs(argv) {
     force: false,
     quiet: false,
     json: false,
+    noColor: false,
     rawArgs: [],
   };
 
@@ -1055,6 +1217,7 @@ function parseArgs(argv) {
     else if (arg === '--force') options.force = true;
     else if (arg === '--quiet') options.quiet = true;
     else if (arg === '--json') options.json = true;
+    else if (arg === '--no-color') options.noColor = true;
     else if (arg === '--help' || arg === '-h') options.command = 'help';
     else throw new Error(`unknown option: ${arg}`);
   }
@@ -1083,7 +1246,7 @@ export async function main(argv = process.argv) {
     return await printBlock();
   }
 
-  const log = createLogger({ quiet: options.quiet, json: options.json });
+  const log = createLogger({ quiet: options.quiet, json: options.json, noColor: options.noColor });
   const target = resolveTarget(options.target);
 
   if (options.command === 'version') {
