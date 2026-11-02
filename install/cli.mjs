@@ -181,6 +181,31 @@ function isColorEnabled(noColorFlag = false) {
   return Boolean(process.stdout.isTTY);
 }
 
+function stripAnsi(str) {
+  return String(str).replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function padVisible(str, width) {
+  const len = stripAnsi(str).length;
+  return len >= width ? str : `${str}${' '.repeat(width - len)}`;
+}
+
+function renderBox(t, { title = null, innerWidth = 68, indent = '', rows = [] }) {
+  const out = [];
+  if (title) {
+    const titleSegment = `─ ${title} `;
+    const rem = Math.max(1, innerWidth - stripAnsi(titleSegment).length);
+    out.push(`${indent}${t.gray('╭')}${t.gray('─')} ${title} ${t.gray('─'.repeat(rem))}${t.gray('╮')}`);
+  } else {
+    out.push(`${indent}${t.gray(`╭${'─'.repeat(innerWidth)}╮`)}`);
+  }
+  for (const row of rows) {
+    out.push(`${indent}${t.gray('│')}${padVisible(row, innerWidth)}${t.gray('│')}`);
+  }
+  out.push(`${indent}${t.gray(`╰${'─'.repeat(innerWidth)}╯`)}`);
+  return out.join('\n');
+}
+
 function createTheme(enabled = isColorEnabled()) {
   const wrap = (open, close = '\x1b[0m') => (text) => (enabled ? `${open}${text}${close}` : String(text));
   return {
@@ -200,15 +225,16 @@ function createTheme(enabled = isColorEnabled()) {
     violet: wrap('\x1b[95m'),
     white: wrap('\x1b[97m'),
     gray: wrap('\x1b[90m'),
-    bgCyan: wrap('\x1b[46m\x1b[30m\x1b[1m'),
-    bgEmerald: wrap('\x1b[102m\x1b[30m\x1b[1m'),
-    bgViolet: wrap('\x1b[45m\x1b[97m\x1b[1m'),
-    bgAmber: wrap('\x1b[43m\x1b[30m\x1b[1m'),
-    bgRose: wrap('\x1b[41m\x1b[97m\x1b[1m'),
   };
 }
 
-function renderBanner(t, version, subtitle = null) {
+function renderBanner(t, version) {
+  const innerWidth = 68;
+  const verTag = `v${version}`;
+  const leftTitle = `  ${t.brightCyan('◆')} ${t.bold(t.brightCyan('ADAPTIVE MASTERY'))}  ${t.gray('·')}  ${t.bold(t.white('Repository Learning System'))}`;
+  const gap = Math.max(1, innerWidth - stripAnsi(leftTitle).length - verTag.length - 2);
+  const row1 = `${leftTitle}${' '.repeat(gap)}${t.dim(verTag)}  `;
+
   const arrow = t.gray('──►');
   const pipeline = [
     t.brightCyan('Discover'),
@@ -218,35 +244,31 @@ function renderBanner(t, version, subtitle = null) {
     t.emerald('Review'),
     t.bold(t.white('Teach')),
   ].join(` ${arrow} `);
+  const row2 = `  ${pipeline}`;
 
-  const verTag = `v${version}`;
-  const mid1Pad = ' '.repeat(Math.max(1, 19 - verTag.length));
-  const top = t.gray('╭──────────────────────────────────────────────────────────────────────╮');
-  const mid1 = `${t.gray('│')}  ${t.bgCyan(' ◆ ADAPTIVE MASTERY ')} ${t.bold(t.white('Repository Learning System'))}${mid1Pad}${t.dim(verTag)}  ${t.gray('│')}`;
-  const mid2 = `${t.gray('│')}  ${pipeline}    ${t.gray('│')}`;
-  const bot = t.gray('╰──────────────────────────────────────────────────────────────────────╯');
-  const lines = ['', top, mid1, mid2, bot];
-  if (subtitle) lines.push(`${t.gray('│')}  ${subtitle}`);
-  return lines.join('\n');
+  return `\n${renderBox(t, { innerWidth, rows: [row1, row2] })}`;
 }
 
 function actionBadge(t, action) {
+  const label = padVisible(action, 9);
   switch (action) {
     case 'created':
     case 'written':
     case 'written pointer skill':
-      return t.emerald(`✦ ${action}`);
+      return t.emerald(`+ ${label}`);
     case 'replaced':
     case 'updated':
-      return t.brightCyan(`↻ ${action}`);
+      return t.brightCyan(`~ ${label}`);
     case 'appended':
-      return t.cyan(`＋ ${action}`);
+      return t.cyan(`+ ${label}`);
+    case 'preserved':
+      return t.cyan(`• ${label}`);
     case 'unchanged':
-      return t.gray(`• ${action}`);
+      return t.gray(`• ${label}`);
     case 'removed':
-      return t.amber(`－ ${action}`);
+      return t.amber(`- ${label}`);
     default:
-      return t.cyan(action);
+      return t.cyan(`• ${label}`);
   }
 }
 
@@ -396,7 +418,7 @@ async function seedUserState({ target, sourceRoot, dryRun, log }) {
     log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'created')}  ${t.white(rel)}`);
   }
   for (const rel of preserved) {
-    log.info(`${t.gray('│')}  ${t.gray('├─')} ${t.cyan('🛡 preserved')} ${t.dim(rel)}`);
+    log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'preserved')}  ${t.dim(rel)}`);
   }
   return seeded;
 }
@@ -862,7 +884,7 @@ async function install({
   ].sort();
 
   const harnessPills = harnesses.map((h) => t.brightCyan(`[${h}]`)).join(' ');
-  const modeBadge = dryRun ? ` ${t.bgAmber(' DRY RUN ')}` : '';
+  const modeBadge = dryRun ? ` ${t.bold(t.amber('[DRY RUN]'))}` : '';
   log.info(renderBanner(t, version));
   log.info(
     `${t.brightCyan('┌')}  ${t.bold(command === 'update' ? 'Updating installation' : 'Initializing repository learning system')}${modeBadge}`,
@@ -896,21 +918,20 @@ async function install({
     ? `${t.amber('◆')}  ${t.bold(t.amber('Dry run complete'))} ${t.dim('— no files were written to disk.')}`
     : `${t.emerald('✔')}  ${t.bold(t.emerald(`Installed adaptive-mastery v${version}`))} ${t.dim(`(${toPosix(join(VENDOR_DIR, 'install.json'))})`)}`;
 
-  log.summary(
-    [
-      `${t.gray('│')}`,
-      `${t.brightCyan('└')}  ${statusLine}`,
+  const nextStepBox = renderBox(t, {
+    title: t.bold(t.brightCyan('Next step · paste into your AI agent')),
+    innerWidth: 68,
+    indent: '   ',
+    rows: [
       '',
-      `   ${t.gray('╭─')} ${t.bold(t.brightCyan('Next step — paste into your AI agent'))} ${t.gray('─────────────────────────────╮')}`,
-      `   ${t.gray('│')}                                                                     ${t.gray('│')}`,
-      `   ${t.gray('│')}  ${t.emerald('❯')} ${t.bold(t.white('"Initialize the Adaptive Mastery System for this repository."'))}  ${t.gray('│')}`,
-      `   ${t.gray('│')}                                                                     ${t.gray('│')}`,
-      `   ${t.gray('│')}  ${t.dim('Health check:')} ${t.cyan('adaptive-mastery doctor')}                              ${t.gray('│')}`,
-      `   ${t.gray('│')}  ${t.dim('Coverage:')}     ${t.cyan('adaptive-mastery validate')}                            ${t.gray('│')}`,
-      `   ${t.gray('╰─────────────────────────────────────────────────────────────────────╯')}`,
+      `  ${t.emerald('>')} ${t.bold(t.white('"Initialize the Adaptive Mastery System for this repository."'))}`,
       '',
-    ].join('\n'),
-  );
+      `  ${t.dim('Health check:')} ${t.cyan('adaptive-mastery doctor')}`,
+      `  ${t.dim('Coverage:')}     ${t.cyan('adaptive-mastery validate')}`,
+    ],
+  });
+
+  log.summary([`${t.gray('│')}`, `${t.brightCyan('└')}  ${statusLine}`, '', nextStepBox, ''].join('\n'));
   return { code: 0, manifest };
 }
 
