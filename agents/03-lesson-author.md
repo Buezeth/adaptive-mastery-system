@@ -27,7 +27,29 @@ At the top of every guide, populate YAML frontmatter with:
 - `unit_id`: stable unit identifier;
 - `unit_order`: numeric sequence position in the curriculum;
 - `introduces`: list of technical concepts first taught in this unit;
-- `assumes`: list of concepts required from earlier units or `docs/learning/learner-profile.yaml`.
+- `assumes`: list of concepts required from earlier units or `docs/learning/learner-profile.yaml`;
+- `terms`: list of new words this lesson teaches, formatted as `"term :: plain-language meaning (4+ words)"`.
+
+## Novice-first contract (checked by `tools/novice-lint.mjs`)
+
+Write the first four sections for a curious 14-year-old who has never written code.
+
+1. **Everyday picture first.** "The first idea" opens with an everyday object or situation ("Imagine ...")
+   before any technical word.
+2. **Plain names first, code names later.** In sections 1 to 4 give every moving part a plain nickname
+   ("the wish position"). Code names, file paths, line numbers and code blocks start in section 5, in a table
+   that maps nickname to code name.
+3. **Declare every new word.** List it in frontmatter `terms` as "term :: meaning in plain words". Mention it
+   first in **bold**, with its meaning in the same sentence, and only after the problem it solves is clear.
+   No more than three new words per section.
+4. **One toy run with made-up numbers** in the example section, labelled as made up. Real constants belong
+   in the technical reference.
+5. **Short sentences, everyday words.** No heading may contain a term that has not been explained.
+6. **Count what you announce.** If the text says "two stages", list two things. Re-read every number you state.
+7. **No hidden prerequisites.** If an idea needs something the learner may not know (a frame, an event, a pixel,
+   the 3D engine), explain it in plain words or declare it in `terms` or `assumes`.
+8. **Learner tasks follow the same rules.** `explain_back` and `predict_then_verify` prompts use only words
+   the lesson has already explained.
 
 ### Maintain two levels in one guide
 A feature guide should support both learning and later reference:
@@ -39,6 +61,7 @@ Put `## Technical reference` after the foundational explanation. Do not hide tec
 ## Codebase guide requirements
 
 - Use actual file paths, line ranges, and symbols only after verifying them (`path/to/file.ext -> symbolName()`, `path/to/file.ext:10-25`, or markdown links). Remember that `tools/preflight-review.mjs` mechanically verifies every path, `:line` range, `#L10` anchor, `-> symbol()` identifier, and markdown heading slug!
+- **Clickable Markdown links (`[label](target)`) must resolve from the guide's own directory:** Because guides live inside a subfolder (such as `docs/learning/features/`), Markdown preview and GitHub resolve relative links from that subfolder. Never write a bare repo-root link like `[lib/engine/engine.ts:323](lib/engine/engine.ts#L323)` inside `docs/learning/features/01-guide.md`—clicking it tries to open `docs/learning/features/lib/engine/engine.ts` and fails! Either use a path relative to the guide's folder (`[lib/engine/engine.ts:323](../../../lib/engine/engine.ts#L323)`), a root-leading slash (`[lib/engine/engine.ts:323](/lib/engine/engine.ts#L323)`), or an inline code reference (`` `lib/engine/engine.ts:323` ``). `tools/preflight-review.mjs` blocks bare repo-root clickable links in subfolder guides.
 - Keep every learner-facing reference purposeful: explain what the reader should learn from opening it. These references will be inlined by `--emit-pack` and followed by the Independent Reviewer as part of its novice simulation.
 - Trace the main execution path in order: trigger → validation/decision → state/data change → handoff/side effect → result visible to the user or system.
 - **Teach code quality honestly:** Use the Repository Analyst's classification (`intended_design`, `accidental_or_workaround`, `questionable_or_bug`). When code is an accidental AI workaround, duplicated logic, or a bug, explicitly tell the learner so they do not internalize bad patterns as intentional design.

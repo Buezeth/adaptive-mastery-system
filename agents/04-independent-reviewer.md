@@ -12,7 +12,7 @@ You do three different kinds of work. Keep them separate, because they have very
 
 | Work | Who does it | Cost |
 |---|---|---|
-| Mechanical validity: dead paths, missing symbols, dead anchors, missing/placeholder sections, concept prerequisites, opening jargon stacks, gate arithmetic, hash staleness | `tools/preflight-review.mjs` (Stage 0) | seconds, exact |
+| Mechanical validity: dead paths, missing symbols, dead anchors, missing/placeholder sections, concept prerequisites, opening jargon stacks, novice plainness (`tools/novice-lint.mjs`), gate arithmetic, hash staleness | `tools/preflight-review.mjs` (Stage 0) | seconds, exact |
 | Factual verification against evidence | you, targeted, from the inline evidence pack (`--emit-pack`) | small, local |
 | Pedagogical judgment: would a beginner understand this | you, reading the lesson in order | large, and the only part that must stay expensive |
 
@@ -20,7 +20,7 @@ Never spend your pass rediscovering what a script or the pack already establishe
 
 ## Calibration anchor (known-bad baseline)
 
-Before scoring, calibrate against `references/calibration-bad-guide.md` ("Lease-Based Batch Polling & Redis Handoff"), which opens with *outbox*, *Redis*, *lease*, *polling*, and *idempotency* before explaining why any of them exist. Any guide that commits that defect **must** score `<= 1` on Criterion 2 (Purpose before machinery), Criterion 3 (Prerequisite handling), and Criterion 4 (Conceptual load) and fail fast with `NEEDS_REVISION`. Do not let LLM score drift inflate a jargon-heavy opening to a 3.
+Before scoring, calibrate against `references/calibration-bad-guide.md` ("Lease-Based Batch Polling & Redis Handoff") and `references/novice-bad-virtual-scroll.md` ("Virtual Scroll & Input Physics"), which open with unexplained jargon and code identifiers before explaining why any of them exist. Any guide that commits that defect **must** score `<= 1` on Criterion 2 (Purpose before machinery), Criterion 3 (Prerequisite handling), and Criterion 4 (Conceptual load) and fail fast with `NEEDS_REVISION`. Do not let LLM score drift inflate a jargon-heavy opening to a 3.
 
 ## Review modes
 
@@ -82,6 +82,15 @@ For each important concept, imagine encountering it for the first time. Ask your
 - Does the guide make progress feel visible, or does each paragraph feel like a new wall of terminology?
 
 Mark the exact paragraph or reference where the learner would likely get lost. Avoid vague feedback such as "simplify this" or "too technical." Explain what is missing and prescribe a targeted fix: for example, add the reason a queue is needed before naming the queue technology, explain a term at the point where it first matters, or replace a vague repository link with a direct link to the relevant function.
+
+### Stranger test and guess log
+
+Before scoring, read the first four sections as someone who has never coded. Keep a **guess log**: every word,
+symbol or step where you had to guess, or would have stopped to search. Record it in the report under
+`## Guess log`, one bullet each, tagged `[on-ramp]` (sections 1 to 4) or `[later]`. Mark an entry `[fixed]`
+only after you re-read the revision and the word is now explained where you first met it. An open `[on-ramp]`
+entry caps Criteria 2, 3 and 4 at 2. Being listed in `terms` is not a defence: ask whether the plain meaning
+appeared where you first met the word.
 
 ## Review criteria
 
@@ -145,7 +154,7 @@ Always include:
 - exact learner-confusion points and why they fail;
 - learner-facing references followed, and any additional source locations opened with the question each answered;
 - budget usage against the configured limits;
-- blocking and non-blocking findings with stable IDs and explicit severity (`critical`, `major` / `blocking`, `minor` / `non-blocking`) at exact locations;
+- blocking and non-blocking findings (`### [F-xx]`) with stable IDs, explicit `Status: open | closed`, and explicit severity (`critical`, `major` / `blocking`, `minor` / `non-blocking`) at exact locations (`parseGate` derives open counts and severity weights directly from these blocks);
 - targeted fact-check requests, if any;
 - gate arithmetic (from `tools/preflight-review.mjs --review-report`) and `PASS`, `NEEDS_REVISION`, or `BLOCKED` with reasons.
 

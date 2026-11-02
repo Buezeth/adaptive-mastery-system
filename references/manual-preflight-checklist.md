@@ -21,9 +21,9 @@ Confirm the guide contains all ten top-level (`#` or `##`) sections, in order, a
 ## 2. Reference and symbol resolution
 For every link `[label](target)` and inline code reference (`` `path/to/file.ext` ``, `` `path:line` ``, `` `path#L10` ``, `` `path -> symbol()` ``) outside fenced code blocks:
 
-- **File/directory existence:** Verify the target path exists relative to either the guide's directory or the repository root.
+- **File existence (no vague directory links):** Verify the target path exists as a file. For **clickable Markdown links** `[label](target)` inside a subfolder guide (e.g. `docs/learning/features/`), the target **must** resolve relative to the guide's own folder (`../../../src/app.ts#L10`) or start with `/` (`/src/app.ts#L10`) so clicking it in Markdown preview does not 404. Reject directory-only links (`src/`) as too vague.
 - **Line ranges:** If `:line` or `#L10-L25` is given, verify the target file has at least that many lines.
-- **Symbols:** If `path -> symbol()` or `path#symbol` is given, verify the identifier `symbol` actually appears in the target file.
+- **Symbols:** If `path -> symbol()` or `path#symbol` is given, verify the identifier `symbol` actually appears in code (not merely inside a comment or string literal) in the target file.
 - **Markdown anchors:** If `#anchor` is given on the guide or another `.md` file, verify a matching heading slug exists (accounting for `-1`, `-2` suffixes on duplicate headings).
 
 ## 3. Concept prerequisites and opening jargon check
@@ -37,4 +37,12 @@ For every link `[label](target)` and inline code reference (`` `path/to/file.ext
   - Criteria 6, 7, 8, 9, 10 must each be `>= 2`.
   - The arithmetic mean of all 10 scores must be `>= 3.0`.
 - **Convergence:** Across revision iterations, either the open blocking finding count strictly decreased or the severity-weighted total (`critical=3`, `major/blocking=2`, `minor/non-blocking=1`) strictly decreased.
+- **Guess log:** Any open `- [on-ramp]` entry in `## Guess log` blocks approval.
 - **Staleness:** If the guide or any referenced source file was edited after the review report was written, the approval is `stale` and does not pass until re-verified.
+
+## 5. Plain-words check (novice on-ramp)
+- **Frontmatter `terms`:** Confirm `terms:` is a YAML list in frontmatter (`terms: []` if none), with every entry formatted as `"term :: plain-language meaning (4+ words)"`.
+- **No code in sections 1 to 4:** Confirm the first four sections (`What this helps the user do`, `Why the feature needs to exist`, `The first idea to understand`, `Follow one real example through the system`) contain no inline code backticks, no code blocks (except fenced `diagram` / `ascii` / `text` / `mermaid`), and no links to source files. Code names and file paths start in Section 5 (`How the implementation makes it happen`) via a plain-nickname-to-code mapping table.
+- **Explain before use:** Every new word or jargon term must be declared in `terms` (or `assumes`), must **not** appear in Section 1 (`What this helps the user do`), and must be **bolded** and explained in plain words at its very first mention.
+- **Everyday picture and toy example:** Section 3 (`The first idea to understand`) opens with an everyday picture (`Imagine ...`), and Section 4 (`Follow one real example through the system`) walks through one toy run with made-up numbers.
+- **Reading grade:** Keep sentences in the first four sections short and concrete (Flesch-Kincaid reading grade `<= 8`).

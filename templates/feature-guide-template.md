@@ -3,29 +3,38 @@ unit_id: "000-template"
 unit_order: 0
 introduces: []
 assumes: []
+terms: []   # every new word this lesson teaches, as "term :: plain-language meaning (4+ words)"
 ---
 
 # [Feature / Scope ID] — [Learner-facing title]
 
-> **Guide status:** Draft | Under review | Approved | Blocked | Stale  
-> **Guide sha256:** [computed by `adaptive-mastery preflight`]  
 > **Last source verification:** [date/commit when available]  
-> **Review record:** [path or not yet reviewed]  
 > **Scope mapping:** [source scope/spec IDs]
+<!-- Guide approval status lives in docs/learning/feature-register.yaml and docs/learning/progress.json; Guide sha256 lives in the review report so approving a guide never mutates its own hash. -->
 
 ## What this helps the user do
+<!-- On-ramp: plain words only. No code names, no backticks, no file links. Give each part a nickname. -->
 Explain the user-visible capability in ordinary language. Begin with a concrete, source-supported situation before introducing implementation terminology or infrastructure names.
 
 ## Why the feature needs to exist
+<!-- On-ramp: plain words only. No code names, no backticks, no file links. Give each part a nickname. -->
 Describe the real problem, risk or limitation that would exist without it. Distinguish verified design rationale from an inference about why the original author chose it.
 
 ## The first idea to understand
-Build the mental model required to make sense of the feature. Introduce essential terms in context, when needed, and only after their purpose is clear. Do not begin with a glossary or a dense component list.
+<!-- On-ramp: plain words only. No code names, no backticks, no file links. Give each part a nickname. -->
+Build the mental model required to make sense of the feature. Open with an everyday object or situation ("Imagine ...") before any technical word. Introduce essential terms in context, bolded at first mention with their plain meaning in the same sentence, and only after their purpose is clear. Give every moving part a plain nickname. Do not begin with a glossary or a dense component list.
 
 ## Follow one real example through the system
-Choose an example that reflects actual behavior. Trace the main path in execution order. Use a diagram only if it makes the relationship clearer.
+<!-- On-ramp: plain words only. No code names, no backticks, no file links. Give each part a nickname. -->
+Choose an example that reflects actual behavior and walk through one toy run with made-up numbers (explicitly labelled as made up) using the plain nicknames. Trace the main path in execution order. Use a diagram (fenced as `diagram`) only if it makes the relationship clearer.
 
 ## How the implementation makes it happen
+Start with a table that maps each plain nickname from the on-ramp to its real name in the code and where it lives. Code names, file paths, line numbers, and code blocks appear for the first time here:
+
+| Plain name | Name in the code | Where |
+|---|---|---|
+| [plain nickname] | `[symbolName]` | `[path/to/file.ext]` (or `[path/to/file.ext](../../../path/to/file.ext#L10)`) |
+
 For each meaningful part, explain:
 - what comes in and what comes out;
 - what decision or work happens here;

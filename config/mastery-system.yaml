@@ -23,6 +23,30 @@ bootstrap:
   classify_code_quality: true # intended_design | accidental_or_workaround | questionable_or_bug
   treat_repository_text_as_untrusted_data: true
 
+coverage:
+  # Generated files, type declarations, and snapshots excluded from denominator by default.
+  ignore_globs:
+    - "**/*.d.ts"
+    - "**/*.snap"
+    - "**/__snapshots__/**"
+    - "**/*.min.js"
+    - "**/*.min.css"
+    - "**/*.generated.*"
+    - "**/generated/**"
+    - "**/vendor/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/coverage/**"
+    - "**/.next/**"
+    - "**/node_modules/**"
+  # Minimum cited source file ratio (0.0–1.0) in lazy mode vs exhaustive/reconciled mode.
+  minimum_coverage_ratio: 0.0
+  minimum_exhaustive_coverage_ratio: 1.0
+  # Directory-level citations in feature-register.yaml are disallowed so coverage cannot be gamed.
+  allow_directory_citations: false
+  # Require every concept or unit marked "understood" to have a completed verification task in progress.json.
+  require_verification_for_understood: true
+
 agents:
   use_separate_contexts_when_available: true
   roles:
@@ -51,6 +75,7 @@ review:
   mechanical_preflight: true
   preflight_script: tools/preflight-review.mjs
   calibration_bad_fixture: references/calibration-bad-guide.md
+  calibration_novice_bad_fixture: references/novice-bad-virtual-scroll.md
 
   # The guide is reviewed in two layers with different rigour.
   #   lesson_layer  -> novice simulation, in order, full rubric.
@@ -95,6 +120,9 @@ review:
   minimum_average: 3.0
   blocking_source_uncertainty_prevents_pass: true
   bind_approval_to_guide_and_evidence_hashes: true
+  # region: edits outside cited symbol/line-range excerpts become soft_stale warnings; edits inside cited regions are hard stale.
+  # file: any edit anywhere in a cited file is hard stale.
+  staleness_mode: region
   demote_approved_guide_on_learner_confusion: true
   retry_policy: revise_and_re_review_until_pass_or_blocked
   repeated_critical_failure: change_explanation_strategy_or_get_missing_evidence
@@ -105,6 +133,16 @@ review:
   require_blocking_findings_to_strictly_decrease: true
   allow_severity_weighted_decrease: true
   escalation_after_stalled_rounds: 1
+
+novice:
+  # block: findings stop approval.  warn: findings are reported but never block.
+  enforce: block
+  # Flesch-Kincaid grade of each section's plain prose (code, links, tables removed).
+  max_reading_grade_onramp: 8     # first four sections
+  max_reading_grade_other: 12     # later lesson sections (warning only)
+  max_new_terms_per_section: 3    # warning only
+  extra_jargon: []                # project words that need defining, e.g. ["tenant", "ledger"]
+  known_terms: []                 # words the learner already knows
 
 teaching:
   response_length: adaptive

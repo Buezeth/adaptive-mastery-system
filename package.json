@@ -44,7 +44,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "test": "node --test tests/install.test.mjs tests/preflight.test.mjs tests/policy.test.mjs",
+    "test": "node --test tests/install.test.mjs tests/preflight.test.mjs tests/policy.test.mjs tests/novice.test.mjs",
     "preflight": "node tools/preflight-review.mjs",
     "validate": "node install/cli.mjs validate",
     "install:demo": "node install/cli.mjs --help"

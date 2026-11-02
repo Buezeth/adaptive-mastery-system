@@ -38,13 +38,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Init, doctor, idempotent re-init, uninstall
+      - name: Init, vendored CLI smoke checks, idempotent re-init, uninstall
         run: |
           node -e "require('fs').mkdirSync('.smoke',{recursive:true})"
           node install/cli.mjs init --target .smoke --harness all
-          node install/cli.mjs doctor --target .smoke
+          node .smoke/.adaptive-mastery/install/cli.mjs doctor --target .smoke
+          node .smoke/.adaptive-mastery/install/cli.mjs validate --target .smoke
+          node .smoke/.adaptive-mastery/install/cli.mjs version --target .smoke
+          node .smoke/.adaptive-mastery/install/cli.mjs print > .smoke/printed.md
+          node .smoke/.adaptive-mastery/install/cli.mjs bundle --target .smoke --out .smoke/ADAPTIVE_MASTERY.md
+          node .smoke/.adaptive-mastery/install/cli.mjs calibrate --target .smoke
+          node -e "const cp=require('child_process');const r=cp.spawnSync('node',['.smoke/.adaptive-mastery/tools/preflight-review.mjs','.smoke/.adaptive-mastery/templates/feature-guide-template.md']);if(r.status!==1){console.error('unedited template should fail preflight with exit 1, got',r.status);process.exit(1)}"
           node install/cli.mjs init --target .smoke --harness all
           node install/cli.mjs uninstall --target .smoke
           node -e "const fs=require('fs');if(fs.existsSync('.smoke/.adaptive-mastery')){console.error('vendor dir survived uninstall');process.exit(1)}"
-      - name: Preflight the shipped template
-        run: node tools/preflight-review.mjs templates/feature-guide-template.md
+      - name: Verify calibration anchor
+        run: node install/cli.mjs calibrate

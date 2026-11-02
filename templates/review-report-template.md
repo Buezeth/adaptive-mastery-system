@@ -7,7 +7,7 @@
 - **Reviewer:** Independent Reviewer
 - **Review status:** `PASS` | `NEEDS_REVISION` | `BLOCKED`
 - **Intended learner:** [background/goal, or cautious default]
-- **Preflight:** [path to `preflight-review.mjs` JSON, and its exit code]
+- **Preflight:** [path to `tools/preflight-review.mjs` JSON, and its exit code]
 - **Gate criteria evaluated:** [all ten, or the re-scored subset]
 - **Structural-change trigger:** [only for `substantial_rewrite`: order moved / new foundational concept / ≥⅓ lesson rewritten]
 
@@ -59,14 +59,19 @@ Record the SHA-256 hashes from `preflight.evidence_hashes` so future runs detect
 - **Hard criterion at or below 1:** [criterion, or `None`]
 - **Pass stopped early:** [yes/no, and what was therefore not evaluated]
 
+## Guess log
+
+- [on-ramp] (section, line) the word or step, and what you guessed it meant
+
 ## Blocking findings
 
 ### [F-01] [Short, specific finding]
+- **Status:** `open` | `closed`
+- **Severity:** `critical` (weight 3) | `major` / `blocking` (weight 2) | `minor` / `non-blocking` (weight 1)
 - **Location:** [section / paragraph / source reference]
 - **Why it blocks understanding or trust:** [concrete explanation]
 - **Evidence checked:** [source path/symbol/test, or "evidence pack"]
 - **Required change:** [specific teaching-order or wording/content fix]
-- **Severity:** `critical` (weight 3) | `major` / `blocking` (weight 2) | `minor` / `non-blocking` (weight 1)
 
 ## Recommended revisions in priority order
 1. [Actionable revision]

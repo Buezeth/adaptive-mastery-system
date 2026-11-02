@@ -45,7 +45,8 @@ Provide:
 - existing guide and prior review findings, if updating.
 
 Require:
-- a full, source-grounded feature guide with YAML frontmatter (`unit_id`, `unit_order`, `introduces`, `assumes`) and non-placeholder content in all ten required sections;
+- a full, source-grounded feature guide with YAML frontmatter (`unit_id`, `unit_order`, `introduces`, `assumes`, `terms`) and non-placeholder content in all ten required sections;
+- plain-language on-ramp sections (Sections 1 to 4 checked by `tools/novice-lint.mjs`: everyday picture first, plain nicknames mapped to code names in Section 5, declared `terms` bolded at first mention, one toy run with made-up numbers);
 - honest surfacing of `accidental_or_workaround` and `questionable_or_bug` code patterns;
 - technical reference suitable for future lookup;
 - learner-facing references that point to exact sections, symbols (`path -> symbol()`), line ranges (`path:10-25` or `path#L10-L25`), tests, or earlier lessons wherever possible;
@@ -71,6 +72,7 @@ Provide in a separate context:
 Require:
 - the mode, `Guide sha256`, `Evidence hashes`, and which gate criteria were evaluated;
 - the complete 10-row scorecard table in every mode (marking unaffected rows as `carried from iteration N` in `delta` mode);
+- the stranger-test `## Guess log` (with any unresolved `[on-ramp]` entry blocking approval);
 - precise locations where a beginner would become confused;
 - a record of learner-facing references followed, references covered by the pack, and any extra source reads with the question each answered;
 - budget usage and any overrun with its reason;

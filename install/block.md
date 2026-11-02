@@ -21,8 +21,9 @@ Non-negotiables:
   `docs/learning/learner-profile.yaml`, and store checkpoints in `docs/learning/progress.json`.
 - **Preflight before review:** Run `node {{DIR}}/tools/preflight-review.mjs <guide> --emit-pack`
   (or `npx adaptive-mastery preflight <guide> --emit-pack`) before any review pass. Dead paths,
-  missing symbols, dead anchors, empty/placeholder sections, missing concept prerequisites, and
-  opening jargon stacks go straight back to the author.
+  missing symbols, dead anchors, empty/placeholder sections, missing concept prerequisites,
+  opening jargon stacks, and novice on-ramp violations (`tools/novice-lint.mjs`) go straight back
+  to the author.
 - **Bounded independent review:** Use a separate Independent Reviewer pass. The reviewer simulates
   a beginner over the lesson layer only, checks the technical reference layer mechanically, and
   inspects extra source only inside configured budgets. It never re-audits the repository.

@@ -32,14 +32,15 @@ node .adaptive-mastery/tools/preflight-review.mjs <guide> --emit-pack [<pack.md>
 
 It deterministically:
 - tracks Markdown code fences and YAML frontmatter so comments/excerpts inside code blocks are never misparsed as headings or links;
-- resolves every learner-facing reference (markdown links, inline `path/to/file.ext`, `path:line`, `path#L10-L25`, `path -> symbol()`, extensionless files like `Makefile`, and directories);
-- verifies that cited symbols (`path -> symbol()`) and line ranges actually exist in the target file;
+- requires valid YAML frontmatter (`unit_id`, `unit_order`, `introduces`, `assumes`) and at least one populated claim-to-evidence row;
+- resolves every learner-facing reference (markdown links, inline `path/to/file.ext`, `path:line`, `path#L10-L25`, `path -> symbol()`, and extensionless files like `Makefile`, while rejecting vague directory-only links);
+- verifies that cited symbols (`path -> symbol()`) exist in actual code (ignoring comments and strings) and that line ranges are in bounds;
 - validates same-document and cross-document anchors (including GitHub `-1`, `-2` suffixes on duplicate headings);
-- checks that all ten required sections exist and contain non-placeholder content;
-- checks `introduces:` and `assumes:` frontmatter against earlier units and flags unexplained jargon stacked in the opening section (calibrated against `references/calibration-bad-guide.md`);
-- computes normalized SHA-256 hashes for the guide (`guide_sha256`) and every referenced file (`evidence_hashes`);
+- checks that all ten required sections exist and contain non-placeholder content (comparing against `templates/feature-guide-template.md`);
+- checks `introduces:`, `assumes:`, and `terms:` frontmatter against earlier units, flags unexplained jargon stacked in the opening section, and runs `tools/novice-lint.mjs` to enforce plain-words on-ramp sections (calibrated against `references/calibration-bad-guide.md` and `references/novice-bad-virtual-scroll.md`);
+- computes self-reference-safe SHA-256 hashes for the guide (`guide_sha256`) and both whole-file and region-scoped hashes for referenced files (`evidence_hashes`, `evidence_region_hashes`);
 - emits the inlined **evidence pack** (`--emit-pack`) containing the exact excerpts for each resolved reference;
-- given `--review-report <report>`, reads thresholds from `config/mastery-system.yaml` (and `docs/learning/config.local.yaml`) and recomputes the gate arithmetic, hash staleness (`stale`), and revision convergence.
+- given `--review-report <report>`, reads thresholds from `config/mastery-system.yaml` (and `docs/learning/config.local.yaml`), derives open blocking findings and severity weights from `### [F-xx]` (`Status: open | closed`) blocks, checks `## Guess log` for unresolved `[on-ramp]` entries, and recomputes gate arithmetic, hard/soft staleness, and latest-transition convergence.
 
 - Exit `1` means a blocking mechanical defect. Return it to the author directly. A reviewer must never spend a pass discovering a broken link, missing symbol, or placeholder section.
 

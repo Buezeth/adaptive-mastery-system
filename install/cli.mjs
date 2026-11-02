@@ -8,14 +8,20 @@
  */
 import { readFile, writeFile, mkdir, rm, readdir, stat, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { dirname, join, resolve, relative, sep } from 'node:path';
+import { dirname, join, resolve, relative, sep, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { main as preflightMain, validateRepositoryState } from '../tools/preflight-review.mjs';
+import {
+  main as preflightMain,
+  validateRepositoryState,
+  calibrateReviewer,
+} from '../tools/preflight-review.mjs';
 
 const PKG_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const VENDOR_DIR = '.adaptive-mastery';
+const FALLBACK_VERSION = '1.1.0';
 const MARKER_BEGIN = '<!-- adaptive-mastery:begin';
 const MARKER_END = '<!-- adaptive-mastery:end -->';
+const AIDER_READ_MARKER = '# adaptive-mastery:aider-read';
 const SKILL_SLUG = 'adaptive-mastery';
 
 /**
@@ -73,7 +79,7 @@ export const HARNESS_REGISTRY = [
   {
     id: 'windsurf',
     detect: ['.windsurf', '.windsurfrules'],
-    write: { kind: 'file', file: `.windsurf/rules/${SKILL_SLUG}.md`, template: 'stub.md' },
+    write: { kind: 'file', file: `.windsurf/rules/${SKILL_SLUG}.md`, template: 'windsurf-rule.md' },
   },
   {
     id: 'cline',
@@ -83,7 +89,12 @@ export const HARNESS_REGISTRY = [
   {
     id: 'aider',
     detect: ['.aider.conf.yml'],
-    write: { kind: 'block', file: 'CONVENTIONS.md', template: 'block.md' },
+    write: {
+      kind: 'aider',
+      file: 'CONVENTIONS.md',
+      confFile: '.aider.conf.yml',
+      template: 'block.md',
+    },
   },
 ];
 
@@ -120,20 +131,24 @@ Commands
   uninstall  Remove managed files and injected instruction blocks
   preflight  Run Stage-0 deterministic checks on a feature guide
   validate   Validate progress.json, feature-register.yaml, staleness, and file coverage
-  print      Print the rendered instruction block to stdout (for custom instruction boxes)
+  calibrate  Verify preflight and reviewer calibration against calibration-bad-guide.md
+  print      Print a self-contained instruction block to stdout (for custom instruction boxes)
   bundle     Produce a single self-contained ADAPTIVE_MASTERY.md for chat/web UIs
   version    Print the installed and package versions
   help       Show this message
 
 Options
-  --target <dir>     Project directory. Default: current directory
-  --harness <list>   Comma list of: ${HARNESSES.join(', ')}, custom, all. Default: auto-detect
-  --file <path>      Target file when using --harness custom
-  --out <path>       Output file for bundle (default: ADAPTIVE_MASTERY.md in target)
-  --dry-run          Report what would change, write nothing
-  --force            Proceed despite local modifications to vendored files
-  --quiet            Only print errors and the final summary
-  --json             Machine-readable result on stdout
+  --target <dir>          Project directory. Default: current directory
+  --harness <list>        Comma list of: ${HARNESSES.join(', ')}, custom, all. Default: auto-detect
+  --file <path>           Target file when using --harness custom
+  --out <path>            Output file for bundle (default: ADAPTIVE_MASTERY.md in target)
+  --review-report <path>  Reviewer report on calibration-bad-guide.md (for calibrate)
+  --model <id>            Model identifier to record during calibrate
+  --record                Persist calibration result in docs/learning/progress.json
+  --dry-run               Report what would change, write nothing
+  --force                 Proceed despite local modifications to vendored files or adapters
+  --quiet                 Only print errors and the final summary
+  --json                  Machine-readable result on stdout
 
 Exit codes: 0 success, 1 problem found, 2 usage error.
 `;
@@ -305,9 +320,33 @@ function createLogger({ quiet, json, noColor = false }) {
 
 /* ---------------------------------------------------------------- package */
 
+/**
+ * Read package metadata from `package.json` when running from the kit repo or npm install,
+ * or from `.adaptive-mastery/install.json` when running from a vendored installation.
+ */
 async function readPackage() {
-  const pkg = JSON.parse(await readFile(join(PKG_ROOT, 'package.json'), 'utf8'));
-  return { name: pkg.name, version: pkg.version };
+  const pkgPath = join(PKG_ROOT, 'package.json');
+  if (await exists(pkgPath)) {
+    try {
+      const pkg = JSON.parse(await readFile(pkgPath, 'utf8'));
+      return { name: pkg.name ?? 'adaptive-mastery', version: pkg.version ?? FALLBACK_VERSION };
+    } catch {
+      /* fall through */
+    }
+  }
+  const vendorManifestPath = join(PKG_ROOT, 'install.json');
+  if (await exists(vendorManifestPath)) {
+    try {
+      const manifest = JSON.parse(await readFile(vendorManifestPath, 'utf8'));
+      return {
+        name: manifest.package ?? 'adaptive-mastery',
+        version: manifest.version ?? FALLBACK_VERSION,
+      };
+    } catch {
+      /* fall through */
+    }
+  }
+  return { name: 'adaptive-mastery', version: FALLBACK_VERSION };
 }
 
 /* --------------------------------------------------------------- payload */
@@ -453,11 +492,12 @@ function escapeRe(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function applyBlock({ file, block, dryRun, log, label, base }) {
+async function applyBlock({ file, block, dryRun, log, label, base, prevCreated }) {
   const { t } = log;
   const normalized = `${block.trimEnd()}\n`;
   const trimmed = normalized.trimEnd();
   const existsAlready = await exists(file);
+  const created = prevCreated !== undefined ? Boolean(prevCreated) : !existsAlready;
   const current = existsAlready ? await readFile(file, 'utf8') : '';
   const pattern = blockPattern();
   const has = pattern.test(current);
@@ -469,7 +509,7 @@ async function applyBlock({ file, block, dryRun, log, label, base }) {
     action = next === current ? 'unchanged' : 'replaced';
   } else if (current.trim() === '') {
     next = normalized;
-    action = 'created';
+    action = existsAlready ? 'appended' : 'created';
   } else {
     next = `${current.trimEnd()}\n\n${normalized}`;
     action = 'appended';
@@ -481,10 +521,10 @@ async function applyBlock({ file, block, dryRun, log, label, base }) {
   }
   const shown = base ? toPosix(relative(base, file)) : toPosix(file);
   log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, action)}  ${t.bold(label)} ${t.dim(`(${shown})`)}`);
-  return { action, blockSha256: sha256Normalized(trimmed) };
+  return { action, blockSha256: sha256Normalized(trimmed), created };
 }
 
-async function stripBlock({ file, dryRun, log, label }) {
+async function stripBlock({ file, dryRun, log, label, created = false }) {
   const { t } = log;
   if (!(await exists(file))) return 'absent';
   const current = await readFile(file, 'utf8');
@@ -496,14 +536,101 @@ async function stripBlock({ file, dryRun, log, label }) {
   const next = current.replace(pattern, '\n').replace(/\n+$/, '').replace(/^\n+/, '');
   if (!dryRun) {
     if (!next.trim()) {
-      // File only held the managed block: delete it rather than leaving a 0-byte orphan.
-      await rm(file, { force: true });
+      if (created) {
+        // File was created by the installer and only held the managed block: delete it.
+        await rm(file, { force: true });
+      } else {
+        // File existed before installation (even if empty): preserve the file itself.
+        await writeFile(file, '', 'utf8');
+      }
     } else {
       await writeFile(file, `${next}\n`, 'utf8');
     }
   }
   log.info(
-    `${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(label)} ${t.dim(!next.trim() ? '(deleted empty file)' : '(stripped managed block)')}`,
+    `${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(label)} ${t.dim(!next.trim() && created ? '(deleted created file)' : '(stripped managed block)')}`,
+  );
+  return 'removed';
+}
+
+async function applyAiderConf({ confAbs, conventionsFile, dryRun, log, base, prevCreated }) {
+  const { t } = log;
+  const existsAlready = await exists(confAbs);
+  const created = prevCreated !== undefined ? Boolean(prevCreated) : !existsAlready;
+  const current = existsAlready ? await readFile(confAbs, 'utf8') : '';
+  const hasConventions = new RegExp(`\\b${escapeRe(conventionsFile)}\\b`).test(current);
+
+  let next = current;
+  let action = 'unchanged';
+  if (!hasConventions) {
+    const managedSnippet = `${AIDER_READ_MARKER}\nread:\n  - ${conventionsFile}\n`;
+    if (!current.trim()) {
+      next = managedSnippet;
+      action = existsAlready ? 'appended' : 'created';
+    } else if (/^read\s*:\s*\[([^\]]*)\]/m.test(current)) {
+      next = current.replace(/^read\s*:\s*\[([^\]]*)\]/m, (full, inner) => {
+        const items = inner.trim() ? `${inner.trim()}, ${conventionsFile}` : conventionsFile;
+        return `read: [${items}] ${AIDER_READ_MARKER}`;
+      });
+      action = 'updated';
+    } else if (/^read\s*:\s*(\S+)\s*$/m.test(current)) {
+      next = current.replace(
+        /^read\s*:\s*(\S+)\s*$/m,
+        `read:\n  - $1\n  - ${conventionsFile} ${AIDER_READ_MARKER}`,
+      );
+      action = 'updated';
+    } else if (/^read\s*:\s*$/m.test(current)) {
+      next = current.replace(
+        /^read\s*:\s*$/m,
+        `read:\n  - ${conventionsFile} ${AIDER_READ_MARKER}`,
+      );
+      action = 'updated';
+    } else {
+      next = `${current.trimEnd()}\n\n${managedSnippet}`;
+      action = 'appended';
+    }
+
+    if (!dryRun) {
+      await mkdir(dirname(confAbs), { recursive: true });
+      await writeFile(confAbs, next, 'utf8');
+    }
+  }
+
+  const shown = base ? toPosix(relative(base, confAbs)) : toPosix(confAbs);
+  log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, action)}  ${t.bold(shown)}`);
+  return { action, created, sha256: sha256Normalized(conventionsFile) };
+}
+
+async function stripAiderConf({ confAbs, conventionsFile, dryRun, log, created = false }) {
+  const { t } = log;
+  if (!(await exists(confAbs))) return 'absent';
+  const current = await readFile(confAbs, 'utf8');
+  let next = current
+    .replace(
+      new RegExp(`\\n*${escapeRe(AIDER_READ_MARKER)}\\nread:\\n\\s*-\\s*${escapeRe(conventionsFile)}\\n*`, 'm'),
+      '\n',
+    )
+    .replace(
+      new RegExp(`\\n?\\s*-\\s*${escapeRe(conventionsFile)}\\s*${escapeRe(AIDER_READ_MARKER)}`, 'g'),
+      '',
+    )
+    .replace(
+      new RegExp(`,\\s*${escapeRe(conventionsFile)}(\\s*\\]\\s*)${escapeRe(AIDER_READ_MARKER)}`, 'g'),
+      '$1',
+    )
+    .replace(/\n+$/, '')
+    .replace(/^\n+/, '');
+
+  if (!dryRun) {
+    if (!next.trim()) {
+      if (created) await rm(confAbs, { force: true });
+      else await writeFile(confAbs, '', 'utf8');
+    } else {
+      await writeFile(confAbs, `${next}\n`, 'utf8');
+    }
+  }
+  log.info(
+    `${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold('.aider.conf.yml')} ${t.dim(!next.trim() && created ? '(deleted created file)' : '(cleaned read entry)')}`,
   );
   return 'removed';
 }
@@ -549,7 +676,15 @@ export function parseHarnesses(raw, customFile = null) {
   return [...new Set(parts)].sort();
 }
 
-async function writeAdapters({ target, harnesses, customFiles = [], version, dryRun, log }) {
+async function writeAdapters({
+  target,
+  harnesses,
+  customFiles = [],
+  existingAdapterHashes = [],
+  version,
+  dryRun,
+  log,
+}) {
   const { t } = log;
   const written = {};
   const adapterHashes = [];
@@ -558,6 +693,11 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
     version,
     dir: VENDOR_DIR,
   });
+
+  const findPrevCreated = (relFile) => {
+    const prev = existingAdapterHashes.find((e) => e.file === relFile);
+    return prev && typeof prev.created === 'boolean' ? prev.created : undefined;
+  };
 
   log.info(`${t.gray('│')}`);
   log.info(`${t.emerald('◆')}  ${t.bold('Harness Adapters')}`);
@@ -584,6 +724,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         log,
         label: relFile,
         base: target,
+        prevCreated: findPrevCreated(relFile),
       });
       written[harnessId] = res.action;
       adapterHashes.push({
@@ -591,10 +732,14 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         kind: 'block',
         file: relFile,
         sha256: res.blockSha256,
+        created: res.created,
       });
     } else if (write.kind === 'file') {
       const absFile = join(target, write.file);
       const relFile = toPosix(write.file);
+      const existedBefore = await exists(absFile);
+      const prevCreated = findPrevCreated(relFile);
+      const created = prevCreated !== undefined ? prevCreated : !existedBefore;
       const rendered = `${renderTemplate(await readTemplate(write.template), {
         version,
         dir: VENDOR_DIR,
@@ -610,11 +755,54 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         kind: 'file',
         file: relFile,
         sha256: sha256Normalized(rendered),
+        created,
+      });
+    } else if (write.kind === 'aider') {
+      const absFile = join(target, write.file);
+      const relFile = toPosix(write.file);
+      const res = await applyBlock({
+        file: absFile,
+        block: fullBlock,
+        dryRun,
+        log,
+        label: relFile,
+        base: target,
+        prevCreated: findPrevCreated(relFile),
+      });
+      adapterHashes.push({
+        harness: 'aider',
+        kind: 'block',
+        file: relFile,
+        sha256: res.blockSha256,
+        created: res.created,
+      });
+
+      const confRel = toPosix(write.confFile);
+      const confAbs = join(target, write.confFile);
+      const confRes = await applyAiderConf({
+        confAbs,
+        conventionsFile: relFile,
+        dryRun,
+        log,
+        base: target,
+        prevCreated: findPrevCreated(confRel),
+      });
+      written.aider = { conventions: res.action, aiderConf: confRes.action };
+      adapterHashes.push({
+        harness: 'aider',
+        kind: 'aider-conf',
+        file: confRel,
+        conventions_file: relFile,
+        sha256: confRes.sha256,
+        created: confRes.created,
       });
     } else if (write.kind === 'claude') {
       // 1. Write lightweight pointer skill stub (no duplicate copy of PAYLOAD)
       const skillAbs = join(target, write.skillFile);
       const skillRel = toPosix(write.skillFile);
+      const skillExistedBefore = await exists(skillAbs);
+      const prevSkillCreated = findPrevCreated(skillRel);
+      const skillCreated = prevSkillCreated !== undefined ? prevSkillCreated : !skillExistedBefore;
       const skillContent = `${renderTemplate(await readTemplate(write.skillTemplate), {
         version,
         dir: VENDOR_DIR,
@@ -640,6 +828,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         kind: 'file',
         file: skillRel,
         sha256: sha256Normalized(skillContent),
+        created: skillCreated,
       });
 
       // 2. Write CLAUDE.md block: use pointer block if AGENTS.md is also active or imported
@@ -656,6 +845,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         log,
         label: claudeRel,
         base: target,
+        prevCreated: findPrevCreated(claudeRel),
       });
       written.claude = {
         skill: skillRel,
@@ -667,6 +857,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
         kind: 'block',
         file: claudeRel,
         sha256: res.blockSha256,
+        created: res.created,
       });
     }
   }
@@ -681,6 +872,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
       log,
       label: `custom (${relFile})`,
       base: target,
+      prevCreated: findPrevCreated(relFile),
     });
     if (!written.custom) written.custom = {};
     written.custom[relFile] = res.action;
@@ -689,6 +881,7 @@ async function writeAdapters({ target, harnesses, customFiles = [], version, dry
       kind: 'block',
       file: relFile,
       sha256: res.blockSha256,
+      created: res.created,
     });
   }
 
@@ -745,11 +938,16 @@ async function writeManifest({
 /* ---------------------------------------------------------------- actions */
 
 function resolveTarget(raw) {
-  return resolve(raw ?? process.cwd());
+  if (raw) return resolve(raw);
+  const cwd = resolve(process.cwd());
+  if (basename(PKG_ROOT) === VENDOR_DIR && cwd === PKG_ROOT) {
+    return dirname(PKG_ROOT);
+  }
+  return cwd;
 }
 
 async function guardTarget({ target, force, log, command }) {
-  if (resolve(target) === PKG_ROOT) {
+  if (resolve(target) === PKG_ROOT && basename(PKG_ROOT) !== VENDOR_DIR) {
     log.error('refusing to install into the kit repository itself; pass --target <project>');
     return false;
   }
@@ -808,6 +1006,11 @@ async function detectAdapterProblems({ target, manifest }) {
         } else if (sha256Normalized(block) !== entry.sha256) {
           problems.push(`${entry.file} managed block was modified (${entry.harness})`);
         }
+      } else if (entry.kind === 'aider-conf') {
+        const expectedTarget = entry.conventions_file ?? 'CONVENTIONS.md';
+        if (!new RegExp(`\\b${escapeRe(expectedTarget)}\\b`).test(content)) {
+          problems.push(`${entry.file} no longer references ${expectedTarget} (aider)`);
+        }
       }
     }
     return problems;
@@ -817,7 +1020,7 @@ async function detectAdapterProblems({ target, manifest }) {
   for (const harness of manifest.harnesses ?? []) {
     const spec = HARNESS_REGISTRY.find((h) => h.id === harness);
     if (!spec) continue;
-    if (spec.write.kind === 'block') {
+    if (spec.write.kind === 'block' || spec.write.kind === 'aider') {
       const file = join(target, spec.write.file);
       const present = (await exists(file)) && blockPattern().test(await readFile(file, 'utf8'));
       if (!present) problems.push(`${spec.write.file} is missing the managed block`);
@@ -854,19 +1057,24 @@ async function install({
 
   if (existing && !force) {
     const modified = await detectLocalModifications({ target, manifest: existing });
-    if (modified.length) {
+    const adapterProblems = await detectAdapterProblems({ target, manifest: existing });
+    if (modified.length || adapterProblems.length) {
+      const allIssues = [
+        ...modified.map((m) => `vendored file modified: ${m}`),
+        ...adapterProblems,
+      ];
       log.error(
-        `vendored files were modified locally:\n  ${modified.join('\n  ')}\nRe-run with --force to overwrite them.`,
+        `vendored files or adapters were modified locally:\n  ${allIssues.join('\n  ')}\nRe-run with --force to overwrite them.`,
       );
       return 1;
     }
   }
 
-  // Union harnesses on update (or re-init when existing installation has harnesses) so
-  // `update --harness cursor` after installing `claude` never orphans previously installed adapters.
+  // Union harnesses on both init and update when an installation already exists so
+  // `init --harness cursor` or `update --harness cursor` after installing `claude` never orphans prior adapters.
   let harnesses;
   if (requested) {
-    if (command === 'update' && existing?.harnesses) {
+    if (existing?.harnesses) {
       harnesses = [...new Set([...existing.harnesses, ...requested])].sort();
     } else {
       harnesses = requested;
@@ -899,6 +1107,7 @@ async function install({
     target,
     harnesses,
     customFiles,
+    existingAdapterHashes: existing?.adapter_hashes ?? [],
     version,
     dryRun,
     log,
@@ -1022,7 +1231,21 @@ async function uninstall({ target, dryRun, log }) {
     for (const entry of adapterHashes) {
       const abs = join(target, entry.file);
       if (entry.kind === 'block') {
-        await stripBlock({ file: abs, dryRun, log, label: entry.file });
+        await stripBlock({
+          file: abs,
+          dryRun,
+          log,
+          label: entry.file,
+          created: Boolean(entry.created),
+        });
+      } else if (entry.kind === 'aider-conf') {
+        await stripAiderConf({
+          confAbs: abs,
+          conventionsFile: entry.conventions_file ?? 'CONVENTIONS.md',
+          dryRun,
+          log,
+          created: Boolean(entry.created),
+        });
       } else if (entry.kind === 'file') {
         if (!dryRun) await rm(abs, { force: true });
         log.info(`${t.gray('│')}  ${t.gray('├─')} ${actionBadge(t, 'removed')}  ${t.bold(entry.file)}`);
@@ -1043,6 +1266,22 @@ async function uninstall({ target, dryRun, log }) {
           dryRun,
           log,
           label: spec.write.file,
+          created: false,
+        });
+      } else if (spec.write.kind === 'aider') {
+        await stripBlock({
+          file: join(target, spec.write.file),
+          dryRun,
+          log,
+          label: spec.write.file,
+          created: false,
+        });
+        await stripAiderConf({
+          confAbs: join(target, spec.write.confFile),
+          conventionsFile: spec.write.file,
+          dryRun,
+          log,
+          created: false,
         });
       } else if (spec.write.kind === 'file') {
         if (!dryRun) await rm(join(target, spec.write.file), { force: true });
@@ -1058,6 +1297,7 @@ async function uninstall({ target, dryRun, log }) {
           dryRun,
           log,
           label: spec.write.file,
+          created: false,
         });
       }
     }
@@ -1073,7 +1313,10 @@ async function uninstall({ target, dryRun, log }) {
 
 async function printBlock() {
   const { version } = await readPackage();
-  const block = renderTemplate(await readTemplate('block.md'), { version, dir: VENDOR_DIR });
+  const block = renderTemplate(await readTemplate('standalone-print.md'), {
+    version,
+    dir: VENDOR_DIR,
+  });
   process.stdout.write(`${block.trimEnd()}\n`);
   return 0;
 }
@@ -1082,9 +1325,15 @@ async function bundleKit({ target, out, dryRun, log }) {
   const { t } = log;
   const { version } = await readPackage();
   const sections = [
-    `# Adaptive Mastery System — Self-Contained Bundle (v${version})`,
+    `# Adaptive Mastery System — Self-Contained Standalone Bundle (v${version})`,
     '',
-    '> Generated by `adaptive-mastery bundle`. Use this single-file bundle in chat UIs, web agents, or environments without local kit installation.',
+    '> Generated by `adaptive-mastery bundle`. This single-file bundle is designed for chat UIs, web agents, or environments **without** a local `.adaptive-mastery/` directory or shell access.',
+    '',
+    '## Standalone No-Filesystem Operating Rules',
+    '',
+    '1. **All kit files are embedded in this document.** Whenever a role or workflow below mentions reading `SKILL.md`, `CURRICULUM_FORMAT.md`, `agents/...`, `workflows/...`, `templates/...`, `config/...`, or `references/...`, read the matching `## File: <path>` section inside this bundle instead of looking for `.adaptive-mastery/` on disk.',
+    '2. **No-shell / no-CLI preflight fallback:** When you cannot run `node .adaptive-mastery/tools/preflight-review.mjs` or `adaptive-mastery validate`, execute every step in the embedded `## File: references/manual-preflight-checklist.md` section manually before running the Independent Reviewer pass.',
+    '3. **No-subagent fallback:** When subagent delegation is unavailable, execute the Repository Analyst, Curriculum Planner, Lesson Author, and Independent Reviewer as explicitly separated sequential passes that judge strictly against the artifact and evidence table rather than conversational authoring memory.',
     '',
   ];
 
@@ -1101,7 +1350,11 @@ async function bundleKit({ target, out, dryRun, log }) {
   for (const rel of orderedFiles) {
     const abs = join(PKG_ROOT, rel);
     if (!(await exists(abs))) continue;
-    const content = (await readFile(abs, 'utf8')).replace(/\r\n/g, '\n').trimEnd();
+    const rawContent = (await readFile(abs, 'utf8')).replace(/\r\n/g, '\n').trimEnd();
+    const content = rawContent.replace(
+      /node\s+\.adaptive-mastery\/tools\/preflight-review\.mjs/g,
+      'node .adaptive-mastery/tools/preflight-review.mjs (or follow embedded `references/manual-preflight-checklist.md` in standalone mode)',
+    );
     sections.push(`---`);
     sections.push(`<!-- bundle-file: ${rel} -->`);
     sections.push(`## File: \`${rel}\``);
@@ -1173,6 +1426,40 @@ function runValidate({ target, json, log }) {
   return res.ok ? 0 : 1;
 }
 
+function runCalibrate({ target, reviewReport, model, record, json, log }) {
+  const { t } = log;
+  const res = calibrateReviewer({
+    repoRoot: target,
+    reviewReport,
+    model,
+    record,
+  });
+  if (json) {
+    process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
+  } else {
+    log.info('');
+    log.info(`${t.brightCyan('┌')}  ${t.bold('Calibration Anchor Check')} ${t.dim('──►')} ${t.white('references/calibration-bad-guide.md')}`);
+    log.info(
+      `${t.gray('│')}  ${t.gray('├─')} mechanical preflight:  ${res.mechanical_ok ? t.emerald('✔ rejected bad fixture') : t.rose('✖ FAILED to reject')}`,
+    );
+    log.info(
+      `${t.gray('│')}  ${t.gray('└─')} reviewer calibration:  ${
+        res.reviewer_ok === null
+          ? t.gray('○ no --review-report supplied')
+          : res.reviewer_ok
+            ? t.emerald('✔ rejected with Criteria 2,3,4 <= 1')
+            : t.rose('✖ FAILED calibration')
+      }`,
+    );
+    if (res.ok) {
+      log.summary(`${t.brightCyan('└')}  ${t.emerald('✔')} ${t.bold(t.emerald('Calibration check passed.'))}\n`);
+    } else {
+      for (const r of res.reasons) log.error(r);
+    }
+  }
+  return res.ok ? 0 : 1;
+}
+
 /* ------------------------------------------------------------------- main */
 
 function parseArgs(argv) {
@@ -1183,6 +1470,9 @@ function parseArgs(argv) {
     harness: null,
     file: null,
     out: null,
+    reviewReport: null,
+    model: null,
+    record: false,
     dryRun: false,
     force: false,
     quiet: false,
@@ -1198,6 +1488,7 @@ function parseArgs(argv) {
     'uninstall',
     'preflight',
     'validate',
+    'calibrate',
     'print',
     'bundle',
     'version',
@@ -1234,6 +1525,11 @@ function parseArgs(argv) {
     else if (arg.startsWith('--file=')) options.file = arg.slice('--file='.length);
     else if (arg === '--out') options.out = takeValue('--out');
     else if (arg.startsWith('--out=')) options.out = arg.slice('--out='.length);
+    else if (arg === '--review-report') options.reviewReport = takeValue('--review-report');
+    else if (arg.startsWith('--review-report=')) options.reviewReport = arg.slice('--review-report='.length);
+    else if (arg === '--model') options.model = takeValue('--model');
+    else if (arg.startsWith('--model=')) options.model = arg.slice('--model='.length);
+    else if (arg === '--record') options.record = true;
     else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--force') options.force = true;
     else if (arg === '--quiet') options.quiet = true;
@@ -1285,6 +1581,17 @@ export async function main(argv = process.argv) {
 
   if (options.command === 'validate') {
     return runValidate({ target, json: options.json, log });
+  }
+
+  if (options.command === 'calibrate') {
+    return runCalibrate({
+      target,
+      reviewReport: options.reviewReport,
+      model: options.model,
+      record: options.record,
+      json: options.json,
+      log,
+    });
   }
 
   try {

@@ -13,8 +13,10 @@ All notable changes to this project are documented here. The format follows
 - **Universal CLI commands**:
   - `adaptive-mastery preflight <guide>`: single cross-platform Node entry point for Stage-0 preflight.
   - `adaptive-mastery validate`: validates `progress.json` and `feature-register.yaml`, checks approved
-    guides for SHA-256 staleness, and computes a mechanical `git ls-files` coverage report (`uncited_files`).
-  - `adaptive-mastery print`: writes the rendered instruction block to stdout.
+    guides for passing gates and SHA-256 staleness, enforces active verification tasks for `understood`
+    concepts/units, and computes a mechanical `git ls-files` coverage report (`uncited_files`).
+  - `adaptive-mastery calibrate`: verifies mechanical and reviewer calibration against `references/calibration-bad-guide.md`.
+  - `adaptive-mastery print`: writes a self-contained standalone instruction block to stdout.
   - `adaptive-mastery bundle`: builds a single self-contained `ADAPTIVE_MASTERY.md` for chat/web UIs.
 - **Evidence pack generator** (`--emit-pack`): deterministically resolves every reference in a guide
   (by line range, symbol, or heading anchor) and inlines the excerpt and SHA-256 hash.

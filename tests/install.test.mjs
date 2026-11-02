@@ -1,5 +1,6 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
   mkdtempSync,
   mkdirSync,
@@ -63,6 +64,7 @@ describe('init and kit/state split', () => {
     assert.deepEqual(manifest.harnesses, ['agents']);
     assert.ok(manifest.files.length > 10);
     assert.ok(Array.isArray(manifest.adapter_hashes) && manifest.adapter_hashes.length === 1);
+    assert.equal(manifest.adapter_hashes[0].created, false);
     assert.equal(manifest.installed_at, manifest.updated_at);
   });
 
@@ -89,7 +91,7 @@ describe('init and kit/state split', () => {
   });
 });
 
-describe('registry harnesses', () => {
+describe('registry harnesses, windsurf frontmatter, and aider .aider.conf.yml', () => {
   for (const spec of HARNESS_REGISTRY) {
     test(`auto-detects and installs harness "${spec.id}" from registry`, async () => {
       const dir = makeProject();
@@ -97,7 +99,7 @@ describe('registry harnesses', () => {
         const trigger = spec.detect[0];
         const triggerPath = join(dir, trigger);
         if (trigger.endsWith('.md') || trigger.endsWith('.yml') || trigger.endsWith('.windsurfrules')) {
-          mkdirSync( resolve(triggerPath, '..'), { recursive: true });
+          mkdirSync(resolve(triggerPath, '..'), { recursive: true });
           writeFileSync(triggerPath, '');
         } else {
           mkdirSync(triggerPath, { recursive: true });
@@ -110,6 +112,14 @@ describe('registry harnesses', () => {
           assert.ok(existsSync(join(dir, spec.write.skillFile)));
           // Pointer stub only: must not duplicate the agents/ folder inside .claude/skills/
           assert.ok(!existsSync(join(dir, '.claude', 'skills', 'adaptive-mastery', 'agents')));
+        }
+        if (spec.id === 'windsurf') {
+          const windsurfText = readFileSync(targetFile, 'utf8');
+          assert.match(windsurfText, /^---\r?\ntrigger:\s*model_decision/m);
+        }
+        if (spec.id === 'aider') {
+          const confText = readFileSync(join(dir, '.aider.conf.yml'), 'utf8');
+          assert.match(confText, /CONVENTIONS\.md/);
         }
         assert.equal(await run(['doctor', '--target', dir, '--quiet']), 0);
         assert.equal(await run(['uninstall', '--target', dir, '--quiet']), 0);
@@ -166,25 +176,58 @@ describe('registry harnesses', () => {
   });
 });
 
-describe('universal fallbacks (print, bundle, preflight subcommand)', () => {
-  test('bundle produces a self-contained ADAPTIVE_MASTERY.md', async () => {
+describe('vendored CLI execution and universal fallbacks (print, bundle, calibrate, preflight)', () => {
+  test('vendored .adaptive-mastery/install/cli.mjs executes doctor, validate, version, print, bundle, and calibrate without package.json', async () => {
     const dir = makeProject();
     try {
-      const outPath = join(dir, 'ADAPTIVE_MASTERY.md');
-      assert.equal(await run(['bundle', '--target', dir, '--out', outPath, '--quiet']), 0);
-      assert.ok(existsSync(outPath));
-      const content = readFileSync(outPath, 'utf8');
-      assert.match(content, /SKILL\.md/);
-      assert.match(content, /CURRICULUM_FORMAT\.md/);
-      assert.match(content, /agents\/04-independent-reviewer\.md/);
+      assert.equal(await run(['init', '--target', dir, '--harness', 'agents', '--quiet']), 0);
+      const vendoredCli = join(dir, VENDOR, 'install', 'cli.mjs');
+      assert.ok(!existsSync(join(dir, VENDOR, 'package.json')));
+
+      const verOut = execFileSync(process.execPath, [vendoredCli, 'version', '--target', dir], {
+        encoding: 'utf8',
+      });
+      assert.match(verOut, /adaptive-mastery/);
+      assert.match(verOut, /installed:\s*1\./);
+
+      execFileSync(process.execPath, [vendoredCli, 'doctor', '--target', dir, '--quiet']);
+      execFileSync(process.execPath, [vendoredCli, 'validate', '--target', dir, '--quiet']);
+      execFileSync(process.execPath, [vendoredCli, 'calibrate', '--target', dir, '--quiet']);
+
+      const printed = execFileSync(process.execPath, [vendoredCli, 'print'], { encoding: 'utf8' });
+      assert.match(printed, /Standalone Instructions/);
+      assert.match(printed, /What this helps the user do/);
+      assert.match(printed, /Average `>= 3\.0`/);
+
+      const bundlePath = join(dir, 'ADAPTIVE_MASTERY.md');
+      execFileSync(process.execPath, [
+        vendoredCli,
+        'bundle',
+        '--target',
+        dir,
+        '--out',
+        bundlePath,
+        '--quiet',
+      ]);
+      const bundleContent = readFileSync(bundlePath, 'utf8');
+      assert.match(bundleContent, /Standalone No-Filesystem Operating Rules/);
+      assert.match(bundleContent, /SKILL\.md/);
+      assert.match(bundleContent, /CURRICULUM_FORMAT\.md/);
+      assert.match(bundleContent, /agents\/04-independent-reviewer\.md/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test('preflight subcommand runs on templates/feature-guide-template.md', async () => {
-    const code = await run(['preflight', join(PKG_ROOT, 'templates', 'feature-guide-template.md')]);
-    assert.equal(code, 0);
+  test('preflight subcommand rejects the unedited template (exit 1) and calibrate subcommand passes (exit 0)', async () => {
+    const preflightCode = await run([
+      'preflight',
+      join(PKG_ROOT, 'templates', 'feature-guide-template.md'),
+    ]);
+    assert.equal(preflightCode, 1);
+
+    const calCode = await run(['calibrate', '--quiet']);
+    assert.equal(calCode, 0);
   });
 });
 
@@ -202,44 +245,55 @@ describe('dry run', () => {
   });
 });
 
-describe('update, CRLF normalization, and harness union', () => {
-  test('refuses to overwrite locally modified vendored files', async () => {
-    const dir = makeProject();
-    try {
-      assert.equal(await run(['init', '--target', dir, '--harness', 'agents', '--quiet']), 0);
-      writeFileSync(join(dir, VENDOR, 'SKILL.md'), 'local edit');
-      assert.equal(await run(['update', '--target', dir, '--quiet']), 1);
-      assert.equal(readFileSync(join(dir, VENDOR, 'SKILL.md'), 'utf8'), 'local edit');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test('restores files with --force and keeps the block single', async () => {
-    const dir = makeProject();
-    try {
-      assert.equal(await run(['init', '--target', dir, '--harness', 'agents', '--quiet']), 0);
-      writeFileSync(join(dir, VENDOR, 'SKILL.md'), 'local edit');
-      assert.equal(await run(['update', '--target', dir, '--force', '--quiet']), 0);
-      assert.match(readFileSync(join(dir, VENDOR, 'SKILL.md'), 'utf8'), /Adaptive Mastery System/);
-      assert.equal(blockCount(join(dir, 'AGENTS.md')), 1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test('unions harnesses on update --harness so prior adapters are not orphaned', async () => {
+describe('update, adapter hash guards, CRLF normalization, and harness union on init & update', () => {
+  test('refuses to overwrite locally modified vendored files or modified adapter files without --force', async () => {
     const dir = makeProject();
     try {
       assert.equal(await run(['init', '--target', dir, '--harness', 'claude', '--quiet']), 0);
-      assert.equal(await run(['update', '--target', dir, '--harness', 'cursor', '--quiet']), 0);
-      const manifest = readManifest(dir);
+
+      // 1. Tamper with Claude skill adapter stub -> update refuses without --force
+      const skillStub = join(dir, '.claude', 'skills', 'adaptive-mastery', 'SKILL.md');
+      writeFileSync(skillStub, 'edited claude skill stub');
+      assert.equal(await run(['update', '--target', dir, '--quiet']), 1);
+      assert.equal(readFileSync(skillStub, 'utf8'), 'edited claude skill stub');
+
+      // Restore with --force
+      assert.equal(await run(['update', '--target', dir, '--force', '--quiet']), 0);
+      assert.match(readFileSync(skillStub, 'utf8'), /Adaptive Mastery System/);
+
+      // 2. Tamper with vendored SKILL.md -> update refuses without --force
+      writeFileSync(join(dir, VENDOR, 'SKILL.md'), 'local edit');
+      assert.equal(await run(['update', '--target', dir, '--quiet']), 1);
+      assert.equal(readFileSync(join(dir, VENDOR, 'SKILL.md'), 'utf8'), 'local edit');
+
+      // Restore with --force
+      assert.equal(await run(['update', '--target', dir, '--force', '--quiet']), 0);
+      assert.match(readFileSync(join(dir, VENDOR, 'SKILL.md'), 'utf8'), /Adaptive Mastery System/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('unions harnesses on both init --harness and update --harness so prior adapters are never orphaned', async () => {
+    const dir = makeProject();
+    try {
+      assert.equal(await run(['init', '--target', dir, '--harness', 'claude', '--quiet']), 0);
+      // Re-running init with --harness cursor must union with claude, not orphan claude
+      assert.equal(await run(['init', '--target', dir, '--harness', 'cursor', '--quiet']), 0);
+      let manifest = readManifest(dir);
       assert.deepEqual(manifest.harnesses, ['claude', 'cursor']);
+      assert.equal(await run(['doctor', '--target', dir, '--quiet']), 0);
+
+      // Running update with --harness windsurf unions all three
+      assert.equal(await run(['update', '--target', dir, '--harness', 'windsurf', '--quiet']), 0);
+      manifest = readManifest(dir);
+      assert.deepEqual(manifest.harnesses, ['claude', 'cursor', 'windsurf']);
 
       assert.equal(await run(['uninstall', '--target', dir, '--quiet']), 0);
       assert.ok(!existsSync(join(dir, '.claude', 'skills', 'adaptive-mastery')));
       assert.ok(!existsSync(join(dir, 'CLAUDE.md')));
       assert.ok(!existsSync(join(dir, '.cursor', 'rules', 'adaptive-mastery.mdc')));
+      assert.ok(!existsSync(join(dir, '.windsurf', 'rules', 'adaptive-mastery.md')));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -326,24 +380,26 @@ describe('doctor', () => {
 });
 
 describe('uninstall', () => {
-  test('removes managed artifacts, deletes 0-byte created files, and keeps user content', async () => {
+  test('removes managed artifacts, deletes created files, and preserves pre-existing empty or non-empty files', async () => {
     const dir = makeProject();
     try {
-      writeFileSync(join(dir, 'AGENTS.md'), '# Mine\n\nRules here.\n');
+      // Pre-existing empty AGENTS.md (must survive uninstall as an empty file!)
+      writeFileSync(join(dir, 'AGENTS.md'), '');
       assert.equal(await run(['init', '--target', dir, '--harness', 'agents,claude,cursor', '--quiet']), 0);
       assert.ok(existsSync(join(dir, 'CLAUDE.md')));
+      // Even after an update, created flags must be preserved
+      assert.equal(await run(['update', '--target', dir, '--quiet']), 0);
       assert.equal(await run(['uninstall', '--target', dir, '--quiet']), 0);
 
       assert.ok(!existsSync(join(dir, VENDOR)));
       assert.ok(!existsSync(join(dir, '.claude', 'skills', 'adaptive-mastery')));
       assert.ok(!existsSync(join(dir, '.cursor', 'rules', 'adaptive-mastery.mdc')));
-      // CLAUDE.md was created by the installer with only the managed block, so it must be deleted, not left 0-byte
-      assert.ok(!existsSync(join(dir, 'CLAUDE.md')), 'must not leave a 0-byte CLAUDE.md');
+      // CLAUDE.md was created by the installer (created: true), so it must be deleted
+      assert.ok(!existsSync(join(dir, 'CLAUDE.md')), 'must delete installer-created CLAUDE.md');
 
-      const agents = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
-      assert.match(agents, /# Mine/);
-      assert.equal(blockCount(join(dir, 'AGENTS.md')), 0);
-      assert.ok(!/adaptive-mastery:begin/.test(agents));
+      // AGENTS.md existed before init (created: false), so it must NOT be deleted even though it is now empty
+      assert.ok(existsSync(join(dir, 'AGENTS.md')), 'must preserve pre-existing empty AGENTS.md');
+      assert.equal(readFileSync(join(dir, 'AGENTS.md'), 'utf8'), '');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

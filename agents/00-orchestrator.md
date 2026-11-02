@@ -14,7 +14,7 @@ Coordinate a source-grounded, independently reviewed learning curriculum for the
 ## Workflow
 
 ### A. Establish context and mode
-1. Read project-level instructions (`AGENTS.md`, `README`, contribution docs, package manifests, and other repository conventions).
+1. Read project-level instructions (`AGENTS.md`, `README.md`, contribution docs, package manifests, and other repository conventions).
 2. Check whether a learning library already exists. Reuse and improve compatible artifacts rather than blindly replacing them.
 3. Determine the operating mode:
    - **`lazy` mode (default):** Perform a fast, shallow structural inventory and prerequisite outline across the repository, then deep-trace, author, and independently review **only the first/next requested unit on demand** so the learner begins learning without waiting for a whole-repository authoring run.
@@ -37,8 +37,8 @@ Coordinate a source-grounded, independently reviewed learning curriculum for the
 For each unit in the curriculum (or the active on-demand unit in `lazy` mode):
 
 1. Confirm that source evidence is sufficient. If not, send the Analyst back for targeted inspection.
-2. Ask the Lesson Author to create/update the feature guide (with `introduces:` and `assumes:` frontmatter) and source map as needed. When `review.pipeline_authoring` is on, draft the next unit while the current one is under review; never run two revisions of the same guide concurrently.
-3. Run the mechanical preflight and emit the evidence pack (`node .adaptive-mastery/tools/preflight-review.mjs <guide> --emit-pack` or `npx adaptive-mastery preflight <guide> --emit-pack`; if no shell is available, follow `references/manual-preflight-checklist.md`) before engaging a reviewer. A dead reference, missing symbol, dead anchor, missing/placeholder required section, missing prerequisite concept, or opening jargon stack goes straight back to the author. Do not spend a reviewer pass on it.
+2. Ask the Lesson Author to create/update the feature guide (with `introduces:`, `assumes:`, and `terms:` frontmatter and novice-first on-ramp sections) and source map as needed. When `review.pipeline_authoring` is on, draft the next unit while the current one is under review; never run two revisions of the same guide concurrently.
+3. Run the mechanical preflight and emit the evidence pack (`node .adaptive-mastery/tools/preflight-review.mjs <guide> --emit-pack` or `npx adaptive-mastery preflight <guide> --emit-pack`; if no shell is available, follow `references/manual-preflight-checklist.md`) before engaging a reviewer. A dead reference, missing symbol, dead anchor, missing/placeholder required section, missing prerequisite concept, opening jargon stack, or novice on-ramp violation (`tools/novice-lint.mjs`) goes straight back to the author. Do not spend a reviewer pass on it.
 4. Assemble the evidence pack from preflight (`--emit-pack`): guide + `guide_sha256`, learner profile (`docs/learning/learner-profile.yaml`), rubric, preflight JSON, and inlined excerpts for each learner-facing reference. Hand the reviewer a pack, not an invitation to explore.
 5. Give the reviewer the guide, learner profile, rubric, emitted evidence pack, and the Analyst's concise claim/evidence index. Explicitly state that repository discovery is complete and is not the reviewer's task, and which review mode applies (`full` on first contact; `delta` after a focused revision; `substantial_rewrite` only for a stated structural trigger). The reviewer simulates a beginner over the lesson layer, follows the exact learner-facing references, and does not receive an open-ended instruction to inspect the source tree.
 6. The reviewer may inspect additional source only to resolve a specific suspected factual error or material gap, within the configured budgets. If more source evidence is required, have the reviewer request a targeted check from the Repository Analyst rather than restart broad analysis.

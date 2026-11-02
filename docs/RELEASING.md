@@ -52,9 +52,9 @@ Never commit it. `.npmrc` is already in `.gitignore`.
 ## Release steps
 
 1. Bump `version` in `package.json`; add a `CHANGELOG.md` entry (Added / Changed / Fixed).
-2. `npm test` — 35 tests, must be green.
-3. `node tools/preflight-review.mjs templates/feature-guide-template.md` — exit `0`.
-4. Confirm what ships: `npm pack --dry-run` (28 files, no `tests/`, no `.github/`).
+2. `npm test` — all unit, preflight, and policy-drift tests must be green.
+3. `node install/cli.mjs calibrate` — verify the calibration fixture (`references/calibration-bad-guide.md`) is rejected as expected (`0`).
+4. Confirm what ships: `npm pack --dry-run` (verify no `tests/`, no `.github/`, and no `docs/RELEASING.md` in the tarball).
 5. Publish from the repository root:
    ```powershell
    $env:NPM_TOKEN = 'npm_…'   # if not already set

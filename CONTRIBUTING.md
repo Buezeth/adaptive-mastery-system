@@ -17,9 +17,10 @@ No dependencies. Node 18+ only.
 
 | File | Covers |
 |---|---|
-| `tests/install.test.mjs` | init, idempotency, registry harnesses, pointer stubs, custom/print/bundle, kit/state split, CRLF hash normalization, union updates, 0-byte cleanup, doctor, uninstall |
-| `tests/preflight.test.mjs` | reference extraction (`:line`, `#L10`, `-> symbol()`, `Makefile`, directories), fence tracking, duplicate `-1` anchors, placeholder detection, `introduces`/`assumes`, known-bad calibration fixture, `--emit-pack`, delta scorecard, SHA-256 staleness, `validate` |
-| `tests/policy.test.mjs` | guards against legacy PowerShell script references, unlinked skills, missing `PAYLOAD` files, and threshold drift between `config/mastery-system.yaml` and the policy docs |
+| `tests/install.test.mjs` | init, idempotency, registry harnesses (including Windsurf frontmatter & Aider `.aider.conf.yml`), pointer stubs, vendored CLI execution without `package.json`, standalone `print`/`bundle`, `calibrate`, kit/state split, CRLF hash normalization, harness union on `init` & `update`, adapter modification guards, pre-existing empty file preservation (`created` flag), doctor, uninstall |
+| `tests/preflight.test.mjs` | reference extraction (`:line`, `#L10`, comment-aware `-> symbol()`, `Makefile`; rejects vague directory links), fence tracking, duplicate `-1` anchors, template-body placeholder detection, required frontmatter (`introduces`/`assumes`/`terms`), populated `evidence_rows`, known-bad calibration fixtures, `--emit-pack`, delta scorecard, `## Guess log` enforcement, `### [F-xx]` finding count derivation, latest-transition convergence, self-reference-safe `guide_sha256`, region-scoped soft/hard staleness, `validate`, `calibrateReviewer` |
+| `tests/policy.test.mjs` | guards against legacy PowerShell script references, unlinked skills, missing `PAYLOAD`/`package.json` files on disk, dead links/anchors across all kit markdown files, and threshold/budget/weight drift between `config/mastery-system.yaml` and the policy docs |
+| `tests/novice.test.mjs` | standalone and fixture checks for `tools/novice-lint.mjs` (`tests/fixtures/novice-bad-virtual-scroll.md` vs `tests/fixtures/novice-good-virtual-scroll.md`, `terms` frontmatter, on-ramp code/link/fence bans, domain jargon watchlist, bold first mention, Flesch-Kincaid reading grade, everyday picture warning) |
 
 If you change the installer's on-disk behaviour or the preflight's output shape, change the tests in
 the same commit. `install.json` and the preflight JSON are public contracts — the workflow docs and

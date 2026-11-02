@@ -118,8 +118,9 @@ npx adaptive-mastery validate
 | `adaptive-mastery update` | re-sync kit and union harnesses without touching `docs/learning/` |
 | `adaptive-mastery uninstall` | remove managed files and blocks (cleaning up 0-byte created files) |
 | `adaptive-mastery preflight <guide>` | deterministic Stage-0 preflight and `--emit-pack` generator |
-| `adaptive-mastery validate` | validate `progress.json`, `feature-register.yaml`, staleness, and `git ls-files` coverage |
-| `adaptive-mastery print` | print the managed instruction block to stdout |
+| `adaptive-mastery validate` | validate `progress.json`, `feature-register.yaml`, approval gates, staleness, and `git ls-files` coverage |
+| `adaptive-mastery calibrate` | verify preflight and reviewer calibration against `references/calibration-bad-guide.md` |
+| `adaptive-mastery print` | print a self-contained standalone instruction block to stdout |
 | `adaptive-mastery bundle` | generate a single self-contained `ADAPTIVE_MASTERY.md` file |
 
 ## Repository layout

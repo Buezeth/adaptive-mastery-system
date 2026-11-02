@@ -97,9 +97,9 @@ your-project/
 | `cursor` | `.cursor/` exists | `.cursor/rules/adaptive-mastery.mdc` |
 | `copilot` | `.github/copilot-instructions.md` exists | managed block in `.github/copilot-instructions.md` |
 | `gemini` | `GEMINI.md` or `.gemini/` exists | managed block in `GEMINI.md` |
-| `windsurf` | `.windsurf/` or `.windsurfrules` exists | `.windsurf/rules/adaptive-mastery.md` |
+| `windsurf` | `.windsurf/` or `.windsurfrules` exists | `.windsurf/rules/adaptive-mastery.md` (with `trigger: model_decision` frontmatter) |
 | `cline` | `.clinerules` exists | `.clinerules/adaptive-mastery.md` |
-| `aider` | `.aider.conf.yml` exists | managed block in `CONVENTIONS.md` |
+| `aider` | `.aider.conf.yml` exists | managed block in `CONVENTIONS.md` + `read: CONVENTIONS.md` in `.aider.conf.yml` |
 | `custom` | `--harness custom --file <path>` | managed block in `<path>` |
 
 When both `AGENTS.md` and `CLAUDE.md` are installed (or when `CLAUDE.md` already imports `@AGENTS.md`), `CLAUDE.md` receives a lightweight pointer block referencing `@AGENTS.md` and `.adaptive-mastery/SKILL.md` so Claude Code never loads the full block twice.

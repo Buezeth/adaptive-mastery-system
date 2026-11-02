@@ -47,6 +47,8 @@
     "resume_instructions": ""
   },
   "review_loop": {
+    "current_model": null,
+    "calibration": null,
     "latest_reports": {},
     "blocked_guides": [],
     "demoted_guides": [],
